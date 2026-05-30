@@ -45,8 +45,7 @@ To load the extension locally in your Google Chrome browser:
 2.  Navigate to `chrome://extensions/` by typing it into the address bar and hitting Enter (or via the top-right menu -> Extensions -> Manage Extensions).
 3.  Enable **"Developer mode"** by toggling the switch in the top-right corner of the page.
 4.  Click the **"Load unpacked"** button in the top-left corner.
-5.  Select the project directory:
-    `C:\Users\ilker\.gemini\antigravity\scratch\save-as-image-extension`
+5.  Select the project directory (the folder where you cloned or saved this extension).
 6.  The extension is now installed! You will see the beautiful neon 3D logo in your extensions list.
 
 ---
