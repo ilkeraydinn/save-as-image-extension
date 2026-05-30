@@ -1,63 +1,71 @@
-# Save as Image (Görseli Farklı Kaydet) - Chrome Eklentisi
+# Save as Image - Chrome Extension
 
-Bu Google Chrome eklentisi (Manifest V3), herhangi bir web sitesindeki görsele sağ tıkladığınızda açılan menüden görseli anında **JPG**, **PNG** veya **WEBP** formatına dönüştürüp indirmenizi sağlar.
-
-## ✨ Özellikler
-
-*   **Çoklu Format Desteği**: Görselleri tek tıkla JPG, PNG veya WEBP formatlarına dönüştürür.
-*   **Akıllı Arka Plan Yönetimi**: Şeffaf arka plana sahip PNG veya WEBP görsellerini JPG'ye dönüştürürken arkalarına otomatik olarak temiz bir **beyaz arka plan** ekler (siyah lekeleri önler).
-*   **Orijinal Dosya Adı Koruma**: İndirilen görsellerin adını orijinal dosya adına en yakın olacak şekilde korur ve yeni uzantıyı ekler.
-*   **Manifest V3 & Offscreen API**: En modern Chrome eklentisi standartlarına uygundur. Arka planda çalışırken tarayıcınızı yormaz ve güvenlidir.
-*   **CORS Desteği**: Güçlü izin yapılandırması sayesinde farklı sunucularda barındırılan görselleri de sorunsuz şekilde indirir.
+A modern, highly optimized Google Chrome browser extension (Manifest V3) that allows you to easily convert and save any image on the web to **JPG**, **PNG**, or **WEBP** format directly from the right-click context menu.
 
 ---
 
-## 📂 Dosya Yapısı (Folder Structure)
+## 🎨 Premium App Icon
+The extension features a custom AI-designed 3D glassmorphic neon camera lens and download arrow icon, giving it a sleek and modern look in your Extensions panel and system notification toasts.
 
-Eklenti klasörünün yapısı aşağıdaki gibidir:
+---
+
+## ✨ Features
+
+*   **Multi-Format Conversion:** Convert and save any web image to JPG, PNG, or WEBP with a single click.
+*   **Smart Transparency Handling:** Automatically adds a clean **white background** when converting transparent PNG or WEBP images to JPG, preventing black backgrounds or artifact issues.
+*   **Original Filename Preservation:** Intelligently extracts and sanitizes the original filename from the image URL, stripping illegal characters (e.g. `< > : " / \ | ? *` for Windows compatibility) and appending the correct new extension.
+*   **Modern Manifest V3 Architecture:** Built using the recommended **Offscreen Document API** to handle HTML5 Canvas operations securely without blocking the main background service worker.
+*   **Full CORS & Authentication Support:** Bypasses CORS limitations using extension host privileges (`host_permissions`) and includes your active session cookies (`credentials: 'include'`) to allow downloads of authenticated or private images behind logins.
+*   **Native Desktop Notifications:** Displays beautiful Windows/macOS notification toasts for conversion start, download success, or explicit error details (with safety timeouts to prevent hanging).
+
+---
+
+## 📂 Folder Structure
 
 ```text
 save-as-image-extension/
-├── manifest.json       # Eklenti ayarları, izinler ve service worker tanımları
-├── background.js       # Context menu yönetimi, indirme ve offscreen kontrolü
-├── helpers.js          # Dosya adı temizleme ve formatlama yardımcı modülü
-├── offscreen.html      # Offscreen Document için HTML taşıyıcı
-├── offscreen.js        # Canvas kullanarak görseli çizen ve dönüştüren script
-├── icon16.png          # Eklenti ikonu (16x16)
-├── icon48.png          # Eklenti ikonu (48x48)
-└── icon128.png         # Eklenti ikonu (128x128)
+├── manifest.json       # Extension configuration, permissions, and service worker definitions
+├── background.js       # Context menus management, network fetching, and offscreen coordination
+├── helpers.js          # Filename parsing and sanitization utilities
+├── offscreen.html      # HTML container for the offscreen canvas element
+├── offscreen.js        # Canvas drawing, quality optimization, and format conversion script
+├── icon16.png          # Resized extension icon (16x16 pixels)
+├── icon48.png          # Resized extension icon (48x48 pixels)
+├── icon128.png         # Resized extension icon (128x128 pixels)
+└── .gitignore          # Git exclusion file for clean repositories
 ```
 
 ---
 
-## 🚀 Kurulum Adımları (Installation Guide)
+## 🚀 Installation Guide
 
-Eklentiyi Chrome tarayıcınıza yüklemek için aşağıdaki adımları takip edin:
+To load the extension locally in your Google Chrome browser:
 
-1.  **Google Chrome** tarayıcınızı açın.
-2.  Adres çubuğuna `chrome://extensions/` yazın ve Enter'a basın (Alternatif olarak: Sağ üstteki üç nokta menüsü -> Diğer Araçlar -> Uzantılar).
-3.  Sayfanın sağ üst köşesinde bulunan **"Developer Mode" (Geliştirici Modu)** seçeneğini aktif hale getirin.
-4.  Sol üst köşede beliren **"Load unpacked" (Paketlenmemiş öğe yükle)** butonuna tıklayın.
-5.  Açılan dosya seçici penceresinden eklenti kodlarının bulunduğu klasörü seçin:
+1.  Open **Google Chrome**.
+2.  Navigate to `chrome://extensions/` by typing it into the address bar and hitting Enter (or via the top-right menu -> Extensions -> Manage Extensions).
+3.  Enable **"Developer mode"** by toggling the switch in the top-right corner of the page.
+4.  Click the **"Load unpacked"** button in the top-left corner.
+5.  Select the project directory:
     `C:\Users\ilker\.gemini\antigravity\scratch\save-as-image-extension`
-6.  Eklenti başarıyla yüklenecektir! Artık herhangi bir web sayfasındaki görsele sağ tıklayıp test edebilirsiniz.
+6.  The extension is now installed! You will see the beautiful neon 3D logo in your extensions list.
 
 ---
 
-## 🛠️ Nasıl Kullanılır?
+## 🛠️ How to Use
 
-1.  Herhangi bir web sitesine gidin (örneğin Wikipedia veya Unsplash).
-2.  Bir görselin üzerine gelip **sağ tıklayın**.
-3.  Açılan menüde **"Save as Image"** seçeneğini göreceksiniz.
-4.  Mouse ile üzerine geldiğinizde açılan alt menüden istediğiniz formatı (**JPG**, **PNG**, **WEBP**) seçin.
-5.  Görsel anında dönüştürülecek ve otomatik olarak indirilecektir!
+1.  Navigate to any website (e.g., Wikipedia, Unsplash, or Google Images).
+2.  **Right-click** on any image you wish to save.
+3.  Hover over the **"Save as Image"** context menu option.
+4.  Select your desired format (**JPG**, **PNG**, or **WEBP**).
+5.  A system notification saying **"Görsel Hazırlanıyor"** (Preparing Image) will appear, and your converted image will be automatically downloaded to your default **Downloads** directory with the correct extension!
 
 ---
 
-## 🧠 Teknik Detaylar (Nasıl Çalışıyor?)
+## 🧠 Technical Under the Hood (How It Works)
 
-1.  **Context Menu tetiklenir**: Kullanıcı sağ tıklayıp bir format seçtiğinde `background.js` bunu yakalar.
-2.  **Offscreen Document açılır**: Manifest V3 arka plan servisleri (Service Workers) DOM ağacına veya `<canvas>` elementine erişemez. Bu yüzden geçici bir `offscreen.html` (Offscreen Document) oluşturulur.
-3.  **Çapraz Origin İndirme (Fetch)**: Görsel, `host_permissions` yetkileri sayesinde CORS kısıtlamalarına takılmadan arka planda indirilir (Blob formatında).
-4.  **Canvas Dönüştürme**: İndirilen blob, offscreen belgesindeki bir HTML Canvas'a çizilir. Eğer hedef format **JPG** ise, saydamlığı korumak adına önce beyaz arka plan çizilir, ardından görsel üzerine yerleştirilir.
-5.  **Otomatik İndirme**: Dönüştürülen görsel `data:URL` formatına çevrilerek `background.js`'e geri gönderilir ve `chrome.downloads` API'si ile bilgisayarınıza kaydedilir. İşlem tamamlandığında offscreen belgesi bellek harcamaması için otomatik olarak kapatılır.
+1.  **Context Menu Click:** The user clicks a format, and `background.js` (Service Worker) catches the source URL.
+2.  **Direct Privilege Fetch:** `background.js` fetches the image directly in the service worker context using extension host permissions to bypass CORS entirely, automatically carrying over your active login sessions if needed.
+3.  **Base64 Conversion:** The fetched binary Blob is natively converted to a Base64 Data URL using `FileReader` within the Service Worker. This bypasses Chrome's structured clone message length limitations for large images.
+4.  **Offscreen Canvas Conversion:** The Base64 string is sent to `offscreen.html` (Offscreen Document) where it is loaded into an `HTMLImageElement` and drawn onto a `<canvas>`.
+    *   *If the target format is JPEG, the canvas is pre-filled with white to handle transparency.*
+5.  **Data URL Export & Download:** The canvas exports the new image at **95% High Quality** back to the Service Worker, which triggers `chrome.downloads.download` to automatically save the file. The offscreen document is immediately closed to free up browser memory.
