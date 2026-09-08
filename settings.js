@@ -26,12 +26,21 @@ export const DEFAULT_SETTINGS = {
  */
 export async function getSettings() {
   try {
-    const storage = (chrome.storage && chrome.storage.sync) || (chrome.storage && chrome.storage.local);
-    if (!storage) {
-      return { ...DEFAULT_SETTINGS };
+    if (chrome.storage && chrome.storage.sync) {
+      try {
+        const result = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+        return { ...DEFAULT_SETTINGS, ...result };
+      } catch (syncErr) {
+        console.warn('storage.sync read failed, checking storage.local:', syncErr);
+      }
     }
-    const result = await storage.get(DEFAULT_SETTINGS);
-    return { ...DEFAULT_SETTINGS, ...result };
+    
+    if (chrome.storage && chrome.storage.local) {
+      const localResult = await chrome.storage.local.get(DEFAULT_SETTINGS);
+      return { ...DEFAULT_SETTINGS, ...localResult };
+    }
+
+    return { ...DEFAULT_SETTINGS };
   } catch (error) {
     console.warn('Failed to load settings from storage, using defaults:', error);
     return { ...DEFAULT_SETTINGS };
@@ -40,18 +49,34 @@ export async function getSettings() {
 
 /**
  * Saves given settings object to chrome.storage.
+ * Uses chrome.storage.sync and mirrors to chrome.storage.local for reliability.
  * 
  * @param {Partial<typeof DEFAULT_SETTINGS>} settings
  * @returns {Promise<boolean>}
  */
 export async function saveSettings(settings) {
   try {
-    const storage = (chrome.storage && chrome.storage.sync) || (chrome.storage && chrome.storage.local);
-    if (!storage) {
-      return false;
+    let saved = false;
+
+    if (chrome.storage && chrome.storage.sync) {
+      try {
+        await chrome.storage.sync.set(settings);
+        saved = true;
+      } catch (syncErr) {
+        console.warn('chrome.storage.sync write failed:', syncErr);
+      }
     }
-    await storage.set(settings);
-    return true;
+
+    if (chrome.storage && chrome.storage.local) {
+      try {
+        await chrome.storage.local.set(settings);
+        saved = true;
+      } catch (localErr) {
+        console.warn('chrome.storage.local write failed:', localErr);
+      }
+    }
+
+    return saved;
   } catch (error) {
     console.error('Failed to save settings:', error);
     return false;
@@ -65,13 +90,17 @@ export async function saveSettings(settings) {
  */
 export async function resetSettings() {
   try {
-    const storage = (chrome.storage && chrome.storage.sync) || (chrome.storage && chrome.storage.local);
-    if (!storage) {
-      return false;
+    if (chrome.storage && chrome.storage.sync) {
+      try {
+        await chrome.storage.sync.clear();
+      } catch (e) { /* ignore */ }
     }
-    await storage.clear();
-    await storage.set(DEFAULT_SETTINGS);
-    return true;
+    if (chrome.storage && chrome.storage.local) {
+      try {
+        await chrome.storage.local.clear();
+      } catch (e) { /* ignore */ }
+    }
+    return await saveSettings(DEFAULT_SETTINGS);
   } catch (error) {
     console.error('Failed to reset settings:', error);
     return false;

@@ -31,6 +31,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
 });
 
+// Flush any pending save immediately when popup is about to close
+window.addEventListener('pagehide', () => {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
+  }
+});
+
 /**
  * Loads current settings from storage and populates the form elements.
  */
@@ -58,50 +66,109 @@ async function loadAndDisplaySettings() {
 }
 
 /**
- * Binds UI interactions and debounced auto-save.
+ * Reads values from DOM and returns a clean settings object.
+ */
+function getCurrentSettingsFromDOM() {
+  const cleanSubfolder = downloadSubfolderInput.value
+    .trim()
+    .replace(/\.\.+/g, '')
+    .replace(/[<>:"|?*\\]/g, '')
+    .replace(/^\/+|\/+$/g, '');
+
+  return {
+    qualityJpg: parseInt(qualityJpgInput.value, 10) || 95,
+    qualityWebp: parseInt(qualityWebpInput.value, 10) || 95,
+    jpgBgColor: jpgBgColorInput.value.toLowerCase(),
+    downloadSubfolder: cleanSubfolder,
+    showStartNotification: notifyStartInput.checked,
+    showSuccessNotification: notifySuccessInput.checked,
+    showErrorNotification: notifyErrorInput.checked
+  };
+}
+
+/**
+ * Immediately saves the current settings and shows confirmation.
+ */
+async function saveCurrentSettingsSync() {
+  const settings = getCurrentSettingsFromDOM();
+  const success = await saveSettings(settings);
+  if (success) {
+    showSavedBadge();
+  }
+}
+
+/**
+ * Binds UI interactions with instant saves for toggles/presets and debounced saves for sliders/text.
  */
 function bindEvents() {
-  // JPG Slider
+  // JPG Slider: Live label on input, save on release / debounce
   qualityJpgInput.addEventListener('input', () => {
     qualityJpgVal.textContent = `%${qualityJpgInput.value}`;
-    triggerAutoSave();
+    triggerDebouncedSave();
+  });
+  qualityJpgInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
   });
 
-  // WEBP Slider
+  // WEBP Slider: Live label on input, save on release / debounce
   qualityWebpInput.addEventListener('input', () => {
     qualityWebpVal.textContent = `%${qualityWebpInput.value}`;
-    triggerAutoSave();
+    triggerDebouncedSave();
+  });
+  qualityWebpInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
   });
 
   // Color Picker
   jpgBgColorInput.addEventListener('input', () => {
     jpgBgHex.textContent = jpgBgColorInput.value.toUpperCase();
-    triggerAutoSave();
+    triggerDebouncedSave();
+  });
+  jpgBgColorInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
   });
 
-  // Color Presets
+  // Color Presets (Instant Save)
   presetButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const color = btn.getAttribute('data-color');
       if (color) {
         jpgBgColorInput.value = color;
         jpgBgHex.textContent = color.toUpperCase();
-        triggerAutoSave();
+        clearTimeout(saveTimeout);
+        saveCurrentSettingsSync();
       }
     });
   });
 
   // Download Subfolder
   downloadSubfolderInput.addEventListener('input', () => {
-    // Sanitize subfolder characters
-    downloadSubfolderInput.value = downloadSubfolderInput.value.replace(/[<>:"|?*\\]/g, '');
-    triggerAutoSave();
+    downloadSubfolderInput.value = downloadSubfolderInput.value
+      .replace(/\.\.+/g, '')
+      .replace(/[<>:"|?*\\]/g, '');
+    triggerDebouncedSave();
+  });
+  downloadSubfolderInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
   });
 
-  // Notifications
-  notifyStartInput.addEventListener('change', triggerAutoSave);
-  notifySuccessInput.addEventListener('change', triggerAutoSave);
-  notifyErrorInput.addEventListener('change', triggerAutoSave);
+  // Notifications (Instant Save on Toggle)
+  notifyStartInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
+  });
+  notifySuccessInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
+  });
+  notifyErrorInput.addEventListener('change', () => {
+    clearTimeout(saveTimeout);
+    saveCurrentSettingsSync();
+  });
 
   // Reset to Defaults
   btnReset.addEventListener('click', async () => {
@@ -112,26 +179,13 @@ function bindEvents() {
 }
 
 /**
- * Collects current form values and schedules an auto-save.
+ * Debounced save for high-frequency events like dragging sliders or typing.
  */
-function triggerAutoSave() {
+function triggerDebouncedSave() {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
-    const newSettings = {
-      qualityJpg: parseInt(qualityJpgInput.value, 10),
-      qualityWebp: parseInt(qualityWebpInput.value, 10),
-      jpgBgColor: jpgBgColorInput.value.toLowerCase(),
-      downloadSubfolder: downloadSubfolderInput.value.trim().replace(/^\/+|\/+$/g, ''),
-      showStartNotification: notifyStartInput.checked,
-      showSuccessNotification: notifySuccessInput.checked,
-      showErrorNotification: notifyErrorInput.checked
-    };
-
-    const success = await saveSettings(newSettings);
-    if (success) {
-      showSavedBadge();
-    }
-  }, 150);
+    await saveCurrentSettingsSync();
+  }, 200);
 }
 
 /**

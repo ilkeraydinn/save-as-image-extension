@@ -32,19 +32,39 @@ async function convertImage(sourceDataUrl, format, options = {}) {
     
     // Set a safety timeout of 8 seconds to prevent hanging
     const timeoutId = setTimeout(() => {
+      cleanup();
       reject(new Error('Görsel işleme zaman aşımına uğradı (8 saniye).'));
     }, 8000);
+
+    function cleanup() {
+      img.onload = null;
+      img.onerror = null;
+      try {
+        img.src = '';
+      } catch (e) {
+        // ignore
+      }
+    }
     
     img.onload = () => {
       clearTimeout(timeoutId);
       try {
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+
+        if (!width || !height) {
+          cleanup();
+          throw new Error('Görsel boyutları geçersiz veya 0 piksel.');
+        }
+
         // Create canvas matching image dimensions
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
+        canvas.width = width;
+        canvas.height = height;
         
         const ctx = canvas.getContext('2d');
         if (!ctx) {
+          cleanup();
           throw new Error('Canvas 2D context alınamadı.');
         }
         
@@ -67,14 +87,21 @@ async function convertImage(sourceDataUrl, format, options = {}) {
         const mimeType = `image/${format}`;
         const dataUrl = canvas.toDataURL(mimeType, qualityParam);
         
+        // Clean up canvas and image immediately to free GPU and RAM
+        cleanup();
+        canvas.width = 0;
+        canvas.height = 0;
+        
         resolve(dataUrl);
       } catch (err) {
+        cleanup();
         reject(err);
       }
     };
     
     img.onerror = () => {
       clearTimeout(timeoutId);
+      cleanup();
       reject(new Error('Görsel grafik motoruna yüklenemedi. Bozuk veya desteklenmeyen bir dosya formatı olabilir.'));
     };
     

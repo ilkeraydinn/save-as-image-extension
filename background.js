@@ -4,39 +4,43 @@ import { getSettings } from './settings.js';
 // Track active image conversions to safely manage offscreen document lifecycle
 let activeConversionsCount = 0;
 let isOffscreenCreating = null; // Promise lock for offscreen creation to avoid race conditions
+let offscreenCloseTimeoutId = null; // 30s idle timer to keep offscreen warm for consecutive saves
 
-// Setup context menus when extension is installed
+// Setup context menus safely when extension is installed or reloaded
 chrome.runtime.onInstalled.addListener(() => {
-  // Create parent menu
-  chrome.contextMenus.create({
-    id: 'save-as-image',
-    title: 'Save as Image',
-    contexts: ['image']
-  });
+  // Clear any existing menus first to prevent duplicate ID errors on reload
+  chrome.contextMenus.removeAll(() => {
+    // Create parent menu
+    chrome.contextMenus.create({
+      id: 'save-as-image',
+      title: 'Save as Image',
+      contexts: ['image']
+    });
 
-  // Create child menus for each format
-  chrome.contextMenus.create({
-    id: 'save-as-jpg',
-    parentId: 'save-as-image',
-    title: 'JPG',
-    contexts: ['image']
-  });
+    // Create child menus for each format
+    chrome.contextMenus.create({
+      id: 'save-as-jpg',
+      parentId: 'save-as-image',
+      title: 'JPG',
+      contexts: ['image']
+    });
 
-  chrome.contextMenus.create({
-    id: 'save-as-png',
-    parentId: 'save-as-image',
-    title: 'PNG',
-    contexts: ['image']
-  });
+    chrome.contextMenus.create({
+      id: 'save-as-png',
+      parentId: 'save-as-image',
+      title: 'PNG',
+      contexts: ['image']
+    });
 
-  chrome.contextMenus.create({
-    id: 'save-as-webp',
-    parentId: 'save-as-image',
-    title: 'WEBP',
-    contexts: ['image']
-  });
+    chrome.contextMenus.create({
+      id: 'save-as-webp',
+      parentId: 'save-as-image',
+      title: 'WEBP',
+      contexts: ['image']
+    });
 
-  console.log('Save as Image context menus initialized.');
+    console.log('Save as Image context menus initialized.');
+  });
 });
 
 // Listen for context menu clicks
@@ -56,26 +60,29 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     try {
       activeConversionsCount++;
+      cancelOffscreenClose(); // Keep document active while in use
 
       // 1. Show starting notification if enabled
       if (settings.showStartNotification) {
-        showNotification('conversion-start', 'Görsel Hazırlanıyor', 'Görsel indiriliyor ve dönüştürülüyor...');
+        showNotification('conversion-start', 'Görsel Hazırlanıyor', 'Görsel indiriliyor ve dönüştürülüyor...', 0);
       }
 
       // 2. Fetch the image directly in the service worker context with timeout and credential fallback
       console.log(`Fetching image: ${srcUrl}`);
       let blob = await fetchWithTimeoutAndFallback(srcUrl);
       
-      // Safety check: Ensure the fetched file is actually an image (e.g. not an HTML error or CAPTCHA page)
-      if (!blob.type.startsWith('image/')) {
-        throw new Error(`Sunucu görsel yerine desteklenmeyen bir dosya türü döndürdü (Mime: ${blob.type}). Web sitesi görseli doğrudan çekmemizi engelliyor olabilir.`);
+      // Safety check: Reject only explicit non-image MIME types (HTML error pages, JSON, XML)
+      // Allow image/*, application/octet-stream, or empty MIME (common on raw CDNs and S3)
+      const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
+      if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
+        throw new Error(`Sunucu görsel yerine web sayfası döndürdü (${blob.type}). Doğrudan erişim engellenmiş veya CAPTCHA sayfası olabilir.`);
       }
 
-      // Convert Blob to Data URL using FileReader in Service Worker.
+      // Convert Blob to Data URL using FileReader in Service Worker
       console.log('Converting blob to data URL...');
       const sourceDataUrl = await blobToDataURL(blob);
 
-      // 3. Open offscreen document with timeout protection
+      // 3. Open offscreen document with timeout protection (or reuse existing)
       await ensureOffscreenDocumentWithTimeout();
 
       // Determine compression quality based on format and user settings
@@ -97,12 +104,21 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       });
 
       if (response && response.success) {
+        // Clear starting notification as soon as conversion succeeds
+        chrome.notifications.clear('conversion-start');
+
         // 5. Generate clean filename
         let filename = getFilenameFromUrl(srcUrl, format);
 
-        // Prepend custom subfolder if configured
+        // Prepend custom subfolder if configured (sanitizing directory traversal)
         if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
-          const cleanFolder = settings.downloadSubfolder.trim().replace(/^\/+|\/+$/g, '').replace(/[<>:"|?*\\]/g, '');
+          const cleanFolder = settings.downloadSubfolder
+            .trim()
+            .replace(/\.\.+/g, '') // remove directory traversal
+            .replace(/[<>:"|?*\\]/g, '')
+            .replace(/^\/+|\/+$/g, '')
+            .replace(/\/+/g, '/'); // collapse consecutive slashes
+            
           if (cleanFolder) {
             filename = `${cleanFolder}/${filename}`;
           }
@@ -117,25 +133,28 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           conflictAction: 'uniquify'
         });
 
-        // 7. Show success notification if enabled
+        // 7. Show success notification if enabled (auto-clears after 4 seconds)
         if (settings.showSuccessNotification) {
           const displayFileName = filename.includes('/') ? filename.substring(filename.lastIndexOf('/') + 1) : filename;
-          showNotification('conversion-success', 'Görsel İndirildi', `${displayFileName} başarıyla kaydedildi.`);
+          showNotification('conversion-success', 'Görsel İndirildi', `${displayFileName} başarıyla kaydedildi.`, 4000);
         }
       } else {
         throw new Error(response ? response.error : 'Dönüştürme modülünden yanıt alınamadı.');
       }
     } catch (error) {
       console.error('Failed to convert and download image:', error);
-      // Show failure notification if enabled
+      // Clear starting notification on error
+      chrome.notifications.clear('conversion-start');
+
+      // Show failure notification if enabled (auto-clears after 6 seconds)
       if (settings.showErrorNotification) {
-        showNotification('conversion-error', 'Dönüştürme Hatası', error.message || 'Görsel dönüştürülürken bir hata oluştu.');
+        showNotification('conversion-error', 'Dönüştürme Hatası', error.message || 'Görsel dönüştürülürken bir hata oluştu.', 6000);
       }
     } finally {
-      activeConversionsCount--;
-      // Close offscreen document if no other conversions are actively running
+      activeConversionsCount = Math.max(0, activeConversionsCount - 1);
+      // Schedule offscreen document closure after 30 seconds of inactivity to keep it warm for consecutive saves
       if (activeConversionsCount === 0) {
-        await closeOffscreenDocument();
+        scheduleOffscreenClose();
       }
     }
   }
@@ -168,8 +187,13 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
       return await response.blob();
     } catch (err) {
       clearTimeout(timeoutId);
-      throw new Error(`Data URL okunurken hata: ${err.message}`);
+      throw new Error(`Data URL okunamadı: ${err.message}`);
     }
+  }
+
+  // Blob URLs from pages cannot be fetched in Service Worker context directly
+  if (url.startsWith('blob:')) {
+    throw new Error('Bu görsel sayfa içi geçici bir bellek nesnesidir (blob URL). Tarayıcı güvenlik kısıtlamaları nedeniyle doğrudan indirilemedi.');
   }
 
   // Attempt 1: Fetch with credentials (handles private/session images)
@@ -177,7 +201,6 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
   const timeoutId1 = setTimeout(() => controller1.abort(), timeoutMs);
   
   try {
-    console.log('Attempting fetch with credentials...');
     const response = await fetch(url, { 
       credentials: 'include',
       signal: controller1.signal 
@@ -188,9 +211,19 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
     if (response.ok) {
       return await response.blob();
     }
+    // If not found, fail immediately without useless retry
+    if (response.status === 404) {
+      throw new Error('Görsel sunucuda bulunamadı (404 Not Found).');
+    }
     throw new Error(`HTTP ${response.status}`);
   } catch (err) {
     clearTimeout(timeoutId1);
+    
+    // If 404, re-throw immediately
+    if (err.message && err.message.includes('404')) {
+      throw err;
+    }
+
     console.warn('Fetch with credentials failed. Retrying without credentials...', err);
     
     // Attempt 2: Fallback to standard fetch (handles public CDNs with wildcard ACAO headers)
@@ -198,7 +231,6 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
     const timeoutId2 = setTimeout(() => controller2.abort(), timeoutMs);
     
     try {
-      console.log('Attempting fallback fetch without credentials...');
       const response = await fetch(url, { 
         signal: controller2.signal 
       });
@@ -225,8 +257,10 @@ async function sendMessageWithRetry(message, maxRetries = 10, delayMs = 100) {
       const response = await chrome.runtime.sendMessage(message);
       return response;
     } catch (err) {
-      const isConnectionError = err.message.includes("Could not establish connection") || 
-                              err.message.includes("Receiving end does not exist");
+      const isConnectionError = err.message && (
+        err.message.includes("Could not establish connection") || 
+        err.message.includes("Receiving end does not exist")
+      );
       if (isConnectionError) {
         console.log(`Offscreen document loading... Retrying in ${delayMs}ms (Attempt ${i + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -240,7 +274,7 @@ async function sendMessageWithRetry(message, maxRetries = 10, delayMs = 100) {
 
 /**
  * Ensures that the offscreen document is created and active.
- * Employs a safety timeout to prevent indefinite hangs and supports older Chrome versions.
+ * Employs a safety timeout to prevent indefinite hangs and handles race conditions safely.
  */
 async function ensureOffscreenDocumentWithTimeout(timeoutMs = 4000) {
   if (isOffscreenCreating) {
@@ -253,40 +287,69 @@ async function ensureOffscreenDocumentWithTimeout(timeoutMs = 4000) {
     const existingContexts = await chrome.runtime.getContexts({
       contextTypes: ['OFFSCREEN_DOCUMENT']
     });
-    if (existingContexts.length > 0) {
+    if (existingContexts && existingContexts.length > 0) {
       return;
     }
   }
 
   // Lock creation to prevent race conditions
-  isOffscreenCreating = new Promise(async (resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error('Offscreen penceresi açılış zaman aşımı (4 saniye).'));
-    }, timeoutMs);
+  const createPromise = (async () => {
+    let timeoutHandle = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error('Offscreen penceresi açılış zaman aşımı (4 saniye).'));
+      }, timeoutMs);
+    });
 
     try {
-      await chrome.offscreen.createDocument({
-        url: 'offscreen.html',
-        reasons: ['DOM_PARSER'],
-        justification: 'Drawing image onto HTML canvas to perform cross-format conversion.'
-      });
-      clearTimeout(timeoutId);
-      resolve();
+      await Promise.race([
+        chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['DOM_PARSER'],
+          justification: 'Drawing image onto HTML canvas to perform cross-format conversion.'
+        }),
+        timeoutPromise
+      ]);
     } catch (err) {
-      clearTimeout(timeoutId);
-      // If it already exists, ignore error and resolve
+      // If it already exists, ignore error
       if (err.message && err.message.includes('Only one offscreen document may be created')) {
-        resolve();
-      } else {
-        reject(err);
+        return;
       }
+      throw err;
+    } finally {
+      clearTimeout(timeoutHandle);
     }
-  });
+  })();
+
+  isOffscreenCreating = createPromise;
 
   try {
-    await isOffscreenCreating;
+    await createPromise;
   } finally {
     isOffscreenCreating = null;
+  }
+}
+
+/**
+ * Schedules closing of the offscreen document after 30 seconds of inactivity.
+ * Keeps document warm for consecutive image saves while ensuring no memory leak.
+ */
+function scheduleOffscreenClose(delayMs = 30000) {
+  cancelOffscreenClose();
+  offscreenCloseTimeoutId = setTimeout(async () => {
+    if (activeConversionsCount === 0) {
+      await closeOffscreenDocument();
+    }
+  }, delayMs);
+}
+
+/**
+ * Cancels any pending offscreen closure.
+ */
+function cancelOffscreenClose() {
+  if (offscreenCloseTimeoutId) {
+    clearTimeout(offscreenCloseTimeoutId);
+    offscreenCloseTimeoutId = null;
   }
 }
 
@@ -299,20 +362,23 @@ async function closeOffscreenDocument() {
       const existingContexts = await chrome.runtime.getContexts({
         contextTypes: ['OFFSCREEN_DOCUMENT']
       });
-      if (existingContexts.length === 0) return;
+      if (!existingContexts || existingContexts.length === 0) return;
     }
 
-    console.log('Closing offscreen document...');
+    console.log('Closing idle offscreen document to free memory...');
     await chrome.offscreen.closeDocument();
   } catch (err) {
-    console.error('Error closing offscreen document:', err);
+    // Ignore already closed errors
+    if (!err.message || !err.message.includes('No current offscreen document')) {
+      console.warn('Notice while closing offscreen document:', err);
+    }
   }
 }
 
 /**
- * Utility to display standard system notifications.
+ * Utility to display system notifications with optional auto-dismiss timer.
  */
-function showNotification(id, title, message) {
+function showNotification(id, title, message, autoClearMs = 4000) {
   try {
     chrome.notifications.create(id, {
       type: 'basic',
@@ -320,6 +386,12 @@ function showNotification(id, title, message) {
       title: title,
       message: message,
       priority: 0
+    }, (createdId) => {
+      if (autoClearMs > 0 && createdId) {
+        setTimeout(() => {
+          chrome.notifications.clear(createdId);
+        }, autoClearMs);
+      }
     });
   } catch (err) {
     console.error('Notification failed to show:', err);
