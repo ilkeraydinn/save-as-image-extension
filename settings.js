@@ -2,6 +2,9 @@
  * Default settings configuration for Save as Image extension.
  */
 export const DEFAULT_SETTINGS = {
+  // Language preference: 'auto', 'tr', or 'en'
+  language: 'auto',
+
   // Quality options (50 to 100)
   qualityJpg: 95,
   qualityWebp: 95,

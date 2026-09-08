@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Save as Image Ayarları</title>
+  <title>Save as Image Settings</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -14,14 +14,24 @@
         <img src="icon48.png" alt="Logo" class="logo">
         <div class="brand-text">
           <h1 class="title">Save as Image</h1>
-          <span class="badge">v1.3.0</span>
+          <span class="badge">v1.4.0</span>
         </div>
       </div>
-      <div id="save-status" class="save-status">
-        <svg class="check-icon" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-        </svg>
-        <span>Kaydedildi</span>
+      
+      <div class="header-actions">
+        <!-- Language Switcher -->
+        <div class="lang-switch" id="lang-switch">
+          <button type="button" class="lang-btn" data-lang="tr" title="Türkçe">TR</button>
+          <button type="button" class="lang-btn" data-lang="en" title="English">EN</button>
+        </div>
+
+        <!-- Saved Confirmation Badge -->
+        <div id="save-status" class="save-status">
+          <svg class="check-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+          </svg>
+          <span data-i18n="savedBadge">Kaydedildi</span>
+        </div>
       </div>
     </header>
 
@@ -34,12 +44,12 @@
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
-          <h2 class="card-title">Görsel Kalitesi</h2>
+          <h2 class="card-title" data-i18n="qualityTitle">Görsel Kalitesi</h2>
         </div>
 
         <div class="control-group">
           <div class="control-label-row">
-            <label for="quality-jpg">JPG Kalitesi</label>
+            <label for="quality-jpg" data-i18n="qualityJpgLabel">JPG Kalitesi</label>
             <span id="quality-jpg-val" class="value-badge">%95</span>
           </div>
           <input type="range" id="quality-jpg" min="50" max="100" value="95" step="1" class="slider">
@@ -47,7 +57,7 @@
 
         <div class="control-group">
           <div class="control-label-row">
-            <label for="quality-webp">WEBP Kalitesi</label>
+            <label for="quality-webp" data-i18n="qualityWebpLabel">WEBP Kalitesi</label>
             <span id="quality-webp-val" class="value-badge">%95</span>
           </div>
           <input type="range" id="quality-webp" min="50" max="100" value="95" step="1" class="slider">
@@ -60,9 +70,9 @@
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
           </svg>
-          <h2 class="card-title">Şeffaf Görseller (JPG için)</h2>
+          <h2 class="card-title" data-i18n="transparencyTitle">Şeffaf Görseller (JPG için)</h2>
         </div>
-        <p class="card-desc">Şeffaf PNG veya WEBP görseller JPG'ye dönüştürülürken arkaya eklenecek renk:</p>
+        <p class="card-desc" data-i18n="transparencyDesc">Şeffaf PNG veya WEBP görseller JPG'ye dönüştürülürken arkaya eklenecek renk:</p>
         
         <div class="color-picker-row">
           <div class="color-input-wrapper">
@@ -71,10 +81,10 @@
           </div>
           <div class="color-presets">
             <button type="button" class="preset-btn" data-color="#ffffff" title="Beyaz">
-              <span class="color-dot white"></span> Beyaz
+              <span class="color-dot white"></span> <span data-i18n="colorWhite">Beyaz</span>
             </button>
             <button type="button" class="preset-btn" data-color="#000000" title="Siyah">
-              <span class="color-dot black"></span> Siyah
+              <span class="color-dot black"></span> <span data-i18n="colorBlack">Siyah</span>
             </button>
           </div>
         </div>
@@ -86,12 +96,12 @@
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
           </svg>
-          <h2 class="card-title">İndirme Klasörü</h2>
+          <h2 class="card-title" data-i18n="folderTitle">İndirme Klasörü</h2>
         </div>
-        <p class="card-desc">İndirilenler klasörünüzün içine isteğe bağlı alt klasör adı:</p>
+        <p class="card-desc" data-i18n="folderDesc">İndirilenler klasörünüzün içine isteğe bağlı alt klasör adı:</p>
         <div class="input-wrapper">
           <span class="input-prefix">Downloads/</span>
-          <input type="text" id="download-subfolder" placeholder="Örn: Görseller" class="text-input" maxlength="40">
+          <input type="text" id="download-subfolder" placeholder="Örn: Görseller" data-i18n-placeholder="folderPlaceholder" class="text-input" maxlength="40">
         </div>
       </section>
 
@@ -101,13 +111,13 @@
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          <h2 class="card-title">Masaüstü Bildirimleri</h2>
+          <h2 class="card-title" data-i18n="notificationsTitle">Masaüstü Bildirimleri</h2>
         </div>
 
         <div class="switch-row">
           <div class="switch-text">
-            <span class="switch-label">Başlama Bildirimi</span>
-            <span class="switch-sub">Dönüştürme başlarken haber ver</span>
+            <span class="switch-label" data-i18n="notifyStartLabel">Başlama Bildirimi</span>
+            <span class="switch-sub" data-i18n="notifyStartSub">Dönüştürme başlarken haber ver</span>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="notify-start">
@@ -117,8 +127,8 @@
 
         <div class="switch-row">
           <div class="switch-text">
-            <span class="switch-label">Başarı Bildirimi</span>
-            <span class="switch-sub">Görsel indirildiğinde haber ver</span>
+            <span class="switch-label" data-i18n="notifySuccessLabel">Başarı Bildirimi</span>
+            <span class="switch-sub" data-i18n="notifySuccessSub">Görsel indirildiğinde haber ver</span>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="notify-success">
@@ -128,8 +138,8 @@
 
         <div class="switch-row">
           <div class="switch-text">
-            <span class="switch-label">Hata Bildirimi</span>
-            <span class="switch-sub">İndirme başarısız olursa sebebi göster</span>
+            <span class="switch-label" data-i18n="notifyErrorLabel">Hata Bildirimi</span>
+            <span class="switch-sub" data-i18n="notifyErrorSub">İndirme başarısız olursa sebebi göster</span>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="notify-error">
@@ -146,9 +156,9 @@
         <svg viewBox="0 0 20 20" fill="currentColor" class="btn-icon">
           <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
         </svg>
-        Varsayılanlara Sıfırla
+        <span data-i18n="btnReset">Varsayılanlara Sıfırla</span>
       </button>
-      <div class="footer-hint">Görselin üzerine sağ tıklayıp istediğiniz formatta kaydedin.</div>
+      <div class="footer-hint" data-i18n="footerHint">Görselin üzerine sağ tıklayıp istediğiniz formatta kaydedin.</div>
     </footer>
   </div>
 

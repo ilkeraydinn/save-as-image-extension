@@ -1,5 +1,6 @@
 import { getFilenameFromUrl } from './helpers.js';
 import { getSettings } from './settings.js';
+import { resolveLanguage, t } from './i18n.js';
 
 // Track active image conversions to safely manage offscreen document lifecycle
 let activeConversionsCount = 0;
@@ -7,41 +8,59 @@ let isOffscreenCreating = null; // Promise lock for offscreen creation to avoid 
 let offscreenCloseTimeoutId = null; // 30s idle timer to keep offscreen warm for consecutive saves
 
 // Setup context menus safely when extension is installed or reloaded
-chrome.runtime.onInstalled.addListener(() => {
-  // Clear any existing menus first to prevent duplicate ID errors on reload
+chrome.runtime.onInstalled.addListener(async () => {
+  const settings = await getSettings();
+  const lang = resolveLanguage(settings.language);
+  setupContextMenus(lang);
+});
+
+// Update context menus dynamically when language preference changes
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (changes.language) {
+    const newLang = resolveLanguage(changes.language.newValue);
+    setupContextMenus(newLang);
+  }
+});
+
+/**
+ * Creates or updates the right-click context menu in the active language.
+ * 
+ * @param {'tr' | 'en'} lang
+ */
+function setupContextMenus(lang) {
   chrome.contextMenus.removeAll(() => {
-    // Create parent menu
+    // Parent menu
     chrome.contextMenus.create({
       id: 'save-as-image',
-      title: 'Save as Image',
+      title: t('menuParent', lang),
       contexts: ['image']
     });
 
-    // Create child menus for each format
+    // Submenu options
     chrome.contextMenus.create({
       id: 'save-as-jpg',
       parentId: 'save-as-image',
-      title: 'JPG',
+      title: t('menuJpg', lang),
       contexts: ['image']
     });
 
     chrome.contextMenus.create({
       id: 'save-as-png',
       parentId: 'save-as-image',
-      title: 'PNG',
+      title: t('menuPng', lang),
       contexts: ['image']
     });
 
     chrome.contextMenus.create({
       id: 'save-as-webp',
       parentId: 'save-as-image',
-      title: 'WEBP',
+      title: t('menuWebp', lang),
       contexts: ['image']
     });
 
-    console.log('Save as Image context menus initialized.');
+    console.log(`Save as Image context menus initialized for language: ${lang}`);
   });
-});
+}
 
 // Listen for context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -57,6 +76,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     // Load active user preferences
     const settings = await getSettings();
+    const lang = resolveLanguage(settings.language);
 
     try {
       activeConversionsCount++;
@@ -64,18 +84,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
       // 1. Show starting notification if enabled
       if (settings.showStartNotification) {
-        showNotification('conversion-start', 'Görsel Hazırlanıyor', 'Görsel indiriliyor ve dönüştürülüyor...', 0);
+        showNotification(
+          'conversion-start',
+          t('notifStartTitle', lang),
+          t('notifStartBody', lang),
+          0
+        );
       }
 
       // 2. Fetch the image directly in the service worker context with timeout and credential fallback
       console.log(`Fetching image: ${srcUrl}`);
-      let blob = await fetchWithTimeoutAndFallback(srcUrl);
+      let blob = await fetchWithTimeoutAndFallback(srcUrl, lang);
       
       // Safety check: Reject only explicit non-image MIME types (HTML error pages, JSON, XML)
-      // Allow image/*, application/octet-stream, or empty MIME (common on raw CDNs and S3)
       const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
       if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
-        throw new Error(`Sunucu görsel yerine web sayfası döndürdü (${blob.type}). Doğrudan erişim engellenmiş veya CAPTCHA sayfası olabilir.`);
+        throw new Error(t('errNotAnImage', lang, { type: blob.type }));
       }
 
       // Convert Blob to Data URL using FileReader in Service Worker
@@ -100,8 +124,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         sourceDataUrl: sourceDataUrl,
         format: format,
         quality: targetQuality,
-        backgroundColor: settings.jpgBgColor || '#ffffff'
-      });
+        backgroundColor: settings.jpgBgColor || '#ffffff',
+        lang: lang
+      }, 10, 100, lang);
 
       if (response && response.success) {
         // Clear starting notification as soon as conversion succeeds
@@ -136,10 +161,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         // 7. Show success notification if enabled (auto-clears after 4 seconds)
         if (settings.showSuccessNotification) {
           const displayFileName = filename.includes('/') ? filename.substring(filename.lastIndexOf('/') + 1) : filename;
-          showNotification('conversion-success', 'Görsel İndirildi', `${displayFileName} başarıyla kaydedildi.`, 4000);
+          showNotification(
+            'conversion-success',
+            t('notifSuccessTitle', lang),
+            t('notifSuccessBody', lang, { name: displayFileName }),
+            4000
+          );
         }
       } else {
-        throw new Error(response ? response.error : 'Dönüştürme modülünden yanıt alınamadı.');
+        throw new Error(response ? response.error : t('errOffscreenResponse', lang));
       }
     } catch (error) {
       console.error('Failed to convert and download image:', error);
@@ -148,7 +178,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
       // Show failure notification if enabled (auto-clears after 6 seconds)
       if (settings.showErrorNotification) {
-        showNotification('conversion-error', 'Dönüştürme Hatası', error.message || 'Görsel dönüştürülürken bir hata oluştu.', 6000);
+        showNotification(
+          'conversion-error',
+          t('notifErrorTitle', lang),
+          error.message || t('notifGenericError', lang),
+          6000
+        );
       }
     } finally {
       activeConversionsCount = Math.max(0, activeConversionsCount - 1);
@@ -167,16 +202,15 @@ function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Görsel verisi veri adresine dönüştürülemedi.'));
+    reader.onerror = () => reject(new Error('Data URL conversion failed.'));
     reader.readAsDataURL(blob);
   });
 }
 
 /**
  * Robust fetch utility with abort timeout and CORS/credential fallbacks.
- * Prevents hanging fetches and bypasses strict CDN credential policies.
  */
-async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
+async function fetchWithTimeoutAndFallback(url, lang = 'en', timeoutMs = 8000) {
   // Direct Data URLs need no special fetch options
   if (url.startsWith('data:')) {
     const controller = new AbortController();
@@ -187,13 +221,13 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
       return await response.blob();
     } catch (err) {
       clearTimeout(timeoutId);
-      throw new Error(`Data URL okunamadı: ${err.message}`);
+      throw new Error(t('errDataUrl', lang, { err: err.message }));
     }
   }
 
   // Blob URLs from pages cannot be fetched in Service Worker context directly
   if (url.startsWith('blob:')) {
-    throw new Error('Bu görsel sayfa içi geçici bir bellek nesnesidir (blob URL). Tarayıcı güvenlik kısıtlamaları nedeniyle doğrudan indirilemedi.');
+    throw new Error(t('errBlobUrl', lang));
   }
 
   // Attempt 1: Fetch with credentials (handles private/session images)
@@ -213,7 +247,7 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
     }
     // If not found, fail immediately without useless retry
     if (response.status === 404) {
-      throw new Error('Görsel sunucuda bulunamadı (404 Not Found).');
+      throw new Error(t('errNotFound', lang));
     }
     throw new Error(`HTTP ${response.status}`);
   } catch (err) {
@@ -238,12 +272,12 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
       clearTimeout(timeoutId2);
       
       if (!response.ok) {
-        throw new Error(`Sunucu hata kodu döndürdü: ${response.status} ${response.statusText}`);
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
       return await response.blob();
     } catch (fallbackErr) {
       clearTimeout(timeoutId2);
-      throw new Error(`Görsel indirilemedi (CORS veya Bağlantı Hatası): ${fallbackErr.message || fallbackErr}`);
+      throw new Error(`CORS / Network Error: ${fallbackErr.message || fallbackErr}`);
     }
   }
 }
@@ -251,7 +285,7 @@ async function fetchWithTimeoutAndFallback(url, timeoutMs = 8000) {
 /**
  * Sends a message with a robust retry mechanism to handle document initialization lag.
  */
-async function sendMessageWithRetry(message, maxRetries = 10, delayMs = 100) {
+async function sendMessageWithRetry(message, maxRetries = 10, delayMs = 100, lang = 'en') {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await chrome.runtime.sendMessage(message);
@@ -269,12 +303,11 @@ async function sendMessageWithRetry(message, maxRetries = 10, delayMs = 100) {
       }
     }
   }
-  throw new Error("Dönüştürme modülü ile bağlantı kurulamadı. Lütfen eklentiyi yenileyip tekrar deneyin.");
+  throw new Error(t('errOffscreenConnect', lang));
 }
 
 /**
  * Ensures that the offscreen document is created and active.
- * Employs a safety timeout to prevent indefinite hangs and handles race conditions safely.
  */
 async function ensureOffscreenDocumentWithTimeout(timeoutMs = 4000) {
   if (isOffscreenCreating) {
@@ -297,7 +330,7 @@ async function ensureOffscreenDocumentWithTimeout(timeoutMs = 4000) {
     let timeoutHandle = null;
     const timeoutPromise = new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        reject(new Error('Offscreen penceresi açılış zaman aşımı (4 saniye).'));
+        reject(new Error('Offscreen creation timeout (4s).'));
       }, timeoutMs);
     });
 
@@ -332,7 +365,6 @@ async function ensureOffscreenDocumentWithTimeout(timeoutMs = 4000) {
 
 /**
  * Schedules closing of the offscreen document after 30 seconds of inactivity.
- * Keeps document warm for consecutive image saves while ensuring no memory leak.
  */
 function scheduleOffscreenClose(delayMs = 30000) {
   cancelOffscreenClose();
@@ -368,7 +400,6 @@ async function closeOffscreenDocument() {
     console.log('Closing idle offscreen document to free memory...');
     await chrome.offscreen.closeDocument();
   } catch (err) {
-    // Ignore already closed errors
     if (!err.message || !err.message.includes('No current offscreen document')) {
       console.warn('Notice while closing offscreen document:', err);
     }

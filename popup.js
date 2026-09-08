@@ -1,6 +1,9 @@
 import { getSettings, saveSettings, resetSettings, DEFAULT_SETTINGS } from './settings.js';
+import { resolveLanguage, t } from './i18n.js';
 
 // DOM Element References
+const langButtons = document.querySelectorAll('.lang-btn');
+
 const qualityJpgInput = document.getElementById('quality-jpg');
 const qualityJpgVal = document.getElementById('quality-jpg-val');
 
@@ -20,11 +23,12 @@ const notifyErrorInput = document.getElementById('notify-error');
 const btnReset = document.getElementById('btn-reset');
 const saveStatus = document.getElementById('save-status');
 
+let currentLang = 'en';
 let saveTimeout = null;
 let statusTimeout = null;
 
 /**
- * Initializes the popup by reading saved settings and binding events.
+ * Initializes the popup by reading saved settings, applying language, and binding events.
  */
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAndDisplaySettings();
@@ -40,11 +44,49 @@ window.addEventListener('pagehide', () => {
 });
 
 /**
+ * Applies translations to all tagged DOM elements.
+ * 
+ * @param {'tr' | 'en'} lang
+ */
+function applyTranslations(lang) {
+  // Translate text content
+  const i18nElements = document.querySelectorAll('[data-i18n]');
+  i18nElements.forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (key) {
+      el.textContent = t(key, lang);
+    }
+  });
+
+  // Translate placeholders
+  const placeholderElements = document.querySelectorAll('[data-i18n-placeholder]');
+  placeholderElements.forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key) {
+      el.placeholder = t(key, lang);
+    }
+  });
+
+  // Update active button state in language switcher
+  langButtons.forEach(btn => {
+    if (btn.getAttribute('data-lang') === lang) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
+
+/**
  * Loads current settings from storage and populates the form elements.
  */
 async function loadAndDisplaySettings() {
   const settings = await getSettings();
   
+  // Resolve and apply language
+  currentLang = resolveLanguage(settings.language);
+  applyTranslations(currentLang);
+
   // Sliders
   qualityJpgInput.value = settings.qualityJpg;
   qualityJpgVal.textContent = `%${settings.qualityJpg}`;
@@ -76,6 +118,7 @@ function getCurrentSettingsFromDOM() {
     .replace(/^\/+|\/+$/g, '');
 
   return {
+    language: currentLang,
     qualityJpg: parseInt(qualityJpgInput.value, 10) || 95,
     qualityWebp: parseInt(qualityWebpInput.value, 10) || 95,
     jpgBgColor: jpgBgColorInput.value.toLowerCase(),
@@ -101,6 +144,19 @@ async function saveCurrentSettingsSync() {
  * Binds UI interactions with instant saves for toggles/presets and debounced saves for sliders/text.
  */
 function bindEvents() {
+  // Language Switcher
+  langButtons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const selectedLang = btn.getAttribute('data-lang');
+      if (selectedLang && selectedLang !== currentLang) {
+        currentLang = selectedLang;
+        applyTranslations(currentLang);
+        clearTimeout(saveTimeout);
+        await saveCurrentSettingsSync();
+      }
+    });
+  });
+
   // JPG Slider: Live label on input, save on release / debounce
   qualityJpgInput.addEventListener('input', () => {
     qualityJpgVal.textContent = `%${qualityJpgInput.value}`;

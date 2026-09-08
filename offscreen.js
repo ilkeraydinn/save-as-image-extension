@@ -1,9 +1,12 @@
+import { t } from './i18n.js';
+
 // Listen for messages from the service worker (background.js)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'convert-image') {
     convertImage(message.sourceDataUrl, message.format, {
       quality: message.quality,
-      backgroundColor: message.backgroundColor
+      backgroundColor: message.backgroundColor,
+      lang: message.lang || 'en'
     })
       .then(dataUrl => {
         sendResponse({ success: true, dataUrl: dataUrl });
@@ -24,16 +27,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * @param {Object} [options] - Conversion options.
  * @param {number} [options.quality] - Compression quality (0.5 to 1.0) for JPEG and WEBP.
  * @param {string} [options.backgroundColor] - Background fill color for JPEG (default '#FFFFFF').
+ * @param {string} [options.lang] - Language code ('tr' or 'en').
  * @returns {Promise<string>} The converted Data URL.
  */
 async function convertImage(sourceDataUrl, format, options = {}) {
+  const lang = options.lang || 'en';
+
   return new Promise((resolve, reject) => {
     const img = new Image();
     
     // Set a safety timeout of 8 seconds to prevent hanging
     const timeoutId = setTimeout(() => {
       cleanup();
-      reject(new Error('Görsel işleme zaman aşımına uğradı (8 saniye).'));
+      reject(new Error(lang === 'tr' ? 'Görsel işleme zaman aşımına uğradı (8 saniye).' : 'Image processing timed out (8 seconds).'));
     }, 8000);
 
     function cleanup() {
@@ -54,7 +60,7 @@ async function convertImage(sourceDataUrl, format, options = {}) {
 
         if (!width || !height) {
           cleanup();
-          throw new Error('Görsel boyutları geçersiz veya 0 piksel.');
+          throw new Error(t('errDimensions', lang));
         }
 
         // Create canvas matching image dimensions
@@ -65,7 +71,7 @@ async function convertImage(sourceDataUrl, format, options = {}) {
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           cleanup();
-          throw new Error('Canvas 2D context alınamadı.');
+          throw new Error('Canvas 2D context unavailable.');
         }
         
         // Transparent background fill for JPG conversions
@@ -102,7 +108,7 @@ async function convertImage(sourceDataUrl, format, options = {}) {
     img.onerror = () => {
       clearTimeout(timeoutId);
       cleanup();
-      reject(new Error('Görsel grafik motoruna yüklenemedi. Bozuk veya desteklenmeyen bir dosya formatı olabilir.'));
+      reject(new Error(t('errGraphicEngine', lang)));
     };
     
     img.src = sourceDataUrl;
