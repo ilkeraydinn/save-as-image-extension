@@ -1,4 +1,5 @@
 import { getFilenameFromUrl } from './helpers.js';
+import { getSettings } from './settings.js';
 
 // Track active image conversions to safely manage offscreen document lifecycle
 let activeConversionsCount = 0;
@@ -50,11 +51,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const srcUrl = info.srcUrl;
     console.log(`Conversion initiated. Target format: ${format}, Source URL: ${srcUrl}`);
 
+    // Load active user preferences
+    const settings = await getSettings();
+
     try {
       activeConversionsCount++;
 
-      // 1. Show starting notification
-      showNotification('conversion-start', 'Görsel Hazırlanıyor', 'Görsel indiriliyor ve dönüştürülüyor...');
+      // 1. Show starting notification if enabled
+      if (settings.showStartNotification) {
+        showNotification('conversion-start', 'Görsel Hazırlanıyor', 'Görsel indiriliyor ve dönüştürülüyor...');
+      }
 
       // 2. Fetch the image directly in the service worker context with timeout and credential fallback
       console.log(`Fetching image: ${srcUrl}`);
@@ -66,24 +72,42 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
 
       // Convert Blob to Data URL using FileReader in Service Worker.
-      // This is highly robust and avoids structured-clone issues with ArrayBuffers in Chrome extension messaging.
       console.log('Converting blob to data URL...');
       const sourceDataUrl = await blobToDataURL(blob);
 
       // 3. Open offscreen document with timeout protection
       await ensureOffscreenDocumentWithTimeout();
 
+      // Determine compression quality based on format and user settings
+      let targetQuality = 0.95;
+      if (format === 'jpeg') {
+        targetQuality = (settings.qualityJpg || 95) / 100;
+      } else if (format === 'webp') {
+        targetQuality = (settings.qualityWebp || 95) / 100;
+      }
+
       // 4. Send conversion request with retry mechanism to offscreen document
-      console.log('Sending data URL to offscreen canvas...');
+      console.log(`Sending data URL to offscreen canvas (Quality: ${targetQuality}, Bg: ${settings.jpgBgColor})...`);
       const response = await sendMessageWithRetry({
         type: 'convert-image',
         sourceDataUrl: sourceDataUrl,
-        format: format
+        format: format,
+        quality: targetQuality,
+        backgroundColor: settings.jpgBgColor || '#ffffff'
       });
 
       if (response && response.success) {
-        // 5. Generate a clean filename close to the original
-        const filename = getFilenameFromUrl(srcUrl, format);
+        // 5. Generate clean filename
+        let filename = getFilenameFromUrl(srcUrl, format);
+
+        // Prepend custom subfolder if configured
+        if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
+          const cleanFolder = settings.downloadSubfolder.trim().replace(/^\/+|\/+$/g, '').replace(/[<>:"|?*\\]/g, '');
+          if (cleanFolder) {
+            filename = `${cleanFolder}/${filename}`;
+          }
+        }
+
         console.log(`Conversion successful. Starting download: ${filename}`);
 
         // 6. Download the file using returned self-contained Data URL
@@ -93,15 +117,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           conflictAction: 'uniquify'
         });
 
-        // 7. Show success notification
-        showNotification('conversion-success', 'Görsel İndirildi', `${filename} başarıyla kaydedildi.`);
+        // 7. Show success notification if enabled
+        if (settings.showSuccessNotification) {
+          const displayFileName = filename.includes('/') ? filename.substring(filename.lastIndexOf('/') + 1) : filename;
+          showNotification('conversion-success', 'Görsel İndirildi', `${displayFileName} başarıyla kaydedildi.`);
+        }
       } else {
         throw new Error(response ? response.error : 'Dönüştürme modülünden yanıt alınamadı.');
       }
     } catch (error) {
       console.error('Failed to convert and download image:', error);
-      // Show failure notification to the user with detailed error
-      showNotification('conversion-error', 'Dönüştürme Hatası', error.message || 'Görsel dönüştürülürken bir hata oluştu.');
+      // Show failure notification if enabled
+      if (settings.showErrorNotification) {
+        showNotification('conversion-error', 'Dönüştürme Hatası', error.message || 'Görsel dönüştürülürken bir hata oluştu.');
+      }
     } finally {
       activeConversionsCount--;
       // Close offscreen document if no other conversions are actively running

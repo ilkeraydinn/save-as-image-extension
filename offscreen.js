@@ -1,7 +1,10 @@
 // Listen for messages from the service worker (background.js)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'convert-image') {
-    convertImage(message.sourceDataUrl, message.format)
+    convertImage(message.sourceDataUrl, message.format, {
+      quality: message.quality,
+      backgroundColor: message.backgroundColor
+    })
       .then(dataUrl => {
         sendResponse({ success: true, dataUrl: dataUrl });
       })
@@ -18,9 +21,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * 
  * @param {string} sourceDataUrl - The Base64 Data URL of the source image.
  * @param {string} format - Target format ('jpeg', 'png', 'webp').
+ * @param {Object} [options] - Conversion options.
+ * @param {number} [options.quality] - Compression quality (0.5 to 1.0) for JPEG and WEBP.
+ * @param {string} [options.backgroundColor] - Background fill color for JPEG (default '#FFFFFF').
  * @returns {Promise<string>} The converted Data URL.
  */
-async function convertImage(sourceDataUrl, format) {
+async function convertImage(sourceDataUrl, format, options = {}) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     
@@ -42,19 +48,24 @@ async function convertImage(sourceDataUrl, format) {
           throw new Error('Canvas 2D context alınamadı.');
         }
         
-        // Transparent background white fill for JPG conversions
+        // Transparent background fill for JPG conversions
         if (format === 'jpeg') {
-          ctx.fillStyle = '#FFFFFF';
+          ctx.fillStyle = options.backgroundColor || '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
         
         // Draw image onto canvas
         ctx.drawImage(img, 0, 0);
         
+        // Determine quality parameter
+        let qualityParam = undefined;
+        if (format === 'jpeg' || format === 'webp') {
+          qualityParam = typeof options.quality === 'number' ? options.quality : 0.95;
+        }
+
         // Convert canvas to target format Data URL
         const mimeType = `image/${format}`;
-        const quality = (format === 'jpeg' || format === 'webp') ? 0.95 : undefined;
-        const dataUrl = canvas.toDataURL(mimeType, quality);
+        const dataUrl = canvas.toDataURL(mimeType, qualityParam);
         
         resolve(dataUrl);
       } catch (err) {
