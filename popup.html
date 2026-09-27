@@ -45,7 +45,7 @@
       <!-- Section: Image Quality -->
       <section class="card">
         <div class="card-header">
-          <div class="card-tag">QUALITY</div>
+          <div class="card-tag" data-i18n="tagQuality">QUALITY</div>
           <h2 class="card-title" data-i18n="qualityTitle">Görsel Kalitesi</h2>
         </div>
 
@@ -69,7 +69,7 @@
       <!-- Section: Transparency & Background -->
       <section class="card">
         <div class="card-header">
-          <div class="card-tag">COLOR</div>
+          <div class="card-tag" data-i18n="tagColor">COLOR</div>
           <h2 class="card-title" data-i18n="transparencyTitle">Şeffaf Görseller (JPG için)</h2>
         </div>
         <p class="card-desc" data-i18n="transparencyDesc">Şeffaf PNG veya WEBP görseller JPG'ye dönüştürülürken arkaya eklenecek renk:</p>
@@ -81,10 +81,18 @@
           </div>
           <div class="color-presets">
             <button type="button" class="preset-btn btn-outlined" data-color="#ffffff" title="Beyaz">
-              <span class="color-dot white"></span> <span data-i18n="colorWhite">Beyaz</span>
+              <span class="color-dot white"></span>
+              <span data-i18n="colorWhite">Beyaz</span>
+              <svg class="preset-check" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
             </button>
             <button type="button" class="preset-btn btn-primary-dark" data-color="#000000" title="Siyah">
-              <span class="color-dot black"></span> <span data-i18n="colorBlack">Siyah</span>
+              <span class="color-dot black"></span>
+              <span data-i18n="colorBlack">Siyah</span>
+              <svg class="preset-check" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
             </button>
           </div>
         </div>
@@ -93,7 +101,7 @@
       <!-- Section: Download Folder -->
       <section class="card">
         <div class="card-header">
-          <div class="card-tag">DIRECTORY</div>
+          <div class="card-tag" data-i18n="tagDirectory">DIRECTORY</div>
           <h2 class="card-title" data-i18n="folderTitle">İndirme Klasörü</h2>
         </div>
         <p class="card-desc" data-i18n="folderDesc">İndirilenler klasörünüzün içine isteğe bağlı alt klasör adı:</p>
@@ -109,7 +117,7 @@
       <!-- Section: Notifications -->
       <section class="card">
         <div class="card-header">
-          <div class="card-tag">PREFERENCES</div>
+          <div class="card-tag" data-i18n="tagPreferences">PREFERENCES</div>
           <h2 class="card-title" data-i18n="notificationsTitle">Masaüstü Bildirimleri</h2>
         </div>
 

@@ -12,6 +12,12 @@ export const TRANSLATIONS = {
     // Language Selector
     langTitle: "Dil",
 
+    // Card Category Tags
+    tagQuality: "KALİTE",
+    tagColor: "RENK",
+    tagDirectory: "KLASÖR",
+    tagPreferences: "BİLDİRİMLER",
+
     // Section: Image Quality
     qualityTitle: "Görsel Kalitesi",
     qualityJpgLabel: "JPG Kalitesi",
@@ -73,6 +79,12 @@ export const TRANSLATIONS = {
 
     // Language Selector
     langTitle: "Language",
+
+    // Card Category Tags
+    tagQuality: "QUALITY",
+    tagColor: "COLOR",
+    tagDirectory: "DIRECTORY",
+    tagPreferences: "PREFERENCES",
 
     // Section: Image Quality
     qualityTitle: "Image Quality",

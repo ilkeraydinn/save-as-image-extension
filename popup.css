@@ -363,7 +363,7 @@ body {
 .preset-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 500;
@@ -371,6 +371,24 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
+  position: relative;
+}
+
+/* Clear active ring around selected button */
+.preset-btn.active {
+  box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--primary);
+}
+
+.preset-check {
+  width: 12px;
+  height: 12px;
+  display: none;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.preset-btn.active .preset-check {
+  display: inline-block;
 }
 
 .btn-outlined {

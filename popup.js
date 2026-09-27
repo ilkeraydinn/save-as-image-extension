@@ -103,6 +103,7 @@ async function loadAndDisplaySettings() {
   // Color picker
   jpgBgColorInput.value = settings.jpgBgColor;
   jpgBgHex.textContent = settings.jpgBgColor.toUpperCase();
+  updateActivePreset(settings.jpgBgColor);
 
   // Subfolder
   downloadSubfolderInput.value = settings.downloadSubfolder || '';
@@ -111,6 +112,23 @@ async function loadAndDisplaySettings() {
   notifyStartInput.checked = Boolean(settings.showStartNotification);
   notifySuccessInput.checked = Boolean(settings.showSuccessNotification);
   notifyErrorInput.checked = Boolean(settings.showErrorNotification);
+}
+
+/**
+ * Updates the active ring and checkmark on preset color buttons.
+ * 
+ * @param {string} activeColor
+ */
+function updateActivePreset(activeColor) {
+  const normalized = (activeColor || '').toLowerCase().trim();
+  presetButtons.forEach(btn => {
+    const btnColor = (btn.getAttribute('data-color') || '').toLowerCase().trim();
+    if (btnColor === normalized) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
 }
 
 /**
@@ -186,9 +204,11 @@ function bindEvents() {
   // Color Picker
   jpgBgColorInput.addEventListener('input', () => {
     jpgBgHex.textContent = jpgBgColorInput.value.toUpperCase();
+    updateActivePreset(jpgBgColorInput.value);
     triggerDebouncedSave();
   });
   jpgBgColorInput.addEventListener('change', () => {
+    updateActivePreset(jpgBgColorInput.value);
     clearTimeout(saveTimeout);
     saveCurrentSettingsSync();
   });
@@ -200,6 +220,7 @@ function bindEvents() {
       if (color) {
         jpgBgColorInput.value = color;
         jpgBgHex.textContent = color.toUpperCase();
+        updateActivePreset(color);
         clearTimeout(saveTimeout);
         saveCurrentSettingsSync();
       }
