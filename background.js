@@ -271,6 +271,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             target: { tabId: tab.id },
             func: async (dataUrl) => {
               try {
+                try { window.focus(); } catch (f) { /* ignore */ }
                 const res = await fetch(dataUrl);
                 const b = await res.blob();
                 if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
@@ -278,10 +279,31 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                   await navigator.clipboard.write([item]);
                   return { success: true };
                 }
-                return { success: false, error: 'Clipboard API not supported in tab' };
               } catch (e) {
+                // Secondary fallback: image element selection copy
+                try {
+                  const img = document.createElement('img');
+                  img.src = dataUrl;
+                  const div = document.createElement('div');
+                  div.contentEditable = 'true';
+                  div.style.position = 'fixed';
+                  div.style.left = '-9999px';
+                  div.appendChild(img);
+                  document.body.appendChild(div);
+                  const range = document.createRange();
+                  range.selectNode(img);
+                  const sel = window.getSelection();
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                  const ok = document.execCommand('copy');
+                  div.remove();
+                  if (ok) return { success: true };
+                } catch (e2) {
+                  /* ignore fallback error */
+                }
                 return { success: false, error: e.message };
               }
+              return { success: false, error: 'Clipboard API not supported in tab' };
             },
             args: [pngDataUrl]
           });
