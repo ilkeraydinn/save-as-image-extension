@@ -66,47 +66,54 @@ body {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .logo {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-medium);
   object-fit: cover;
+  flex-shrink: 0;
 }
 
 .brand-text {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .title {
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.2px;
+  white-space: nowrap;
 }
 
 .badge {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   background: var(--bg-subtle);
   color: var(--secondary);
-  padding: 2px 6px;
+  padding: 1.5px 5.5px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--border-medium);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  position: relative;
+  flex-shrink: 0;
 }
 
 /* Segmented Language Switcher with Sliding Pill */
@@ -174,31 +181,30 @@ body {
 .save-status {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3.5px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 500;
   background: var(--primary);
   color: var(--text-inverted);
-  padding: 2px 7px;
+  padding: 1.5px 6px;
   border-radius: var(--radius-xs);
   opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  position: absolute;
-  right: 0;
-  top: -22px;
+  transform: scale(0.92);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .save-status.visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: scale(1);
 }
 
 .check-icon {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
 }
 
 /* Main Content Cards */
