@@ -109,28 +109,56 @@ body {
   position: relative;
 }
 
-/* Segmented Language Switcher */
+/* Segmented Language Switcher with Sliding Pill */
 .lang-switch {
+  position: relative;
   display: inline-flex;
   align-items: center;
   background: var(--bg-subtle);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   padding: 2px;
-  gap: 2px;
+  user-select: none;
+}
+
+/* Smooth sliding active indicator */
+.lang-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  background: var(--primary);
+  border-radius: var(--radius-xs);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.lang-switch[data-active="en"] .lang-pill {
+  transform: translateX(100%);
+}
+
+.lang-switch[data-active="tr"] .lang-pill {
+  transform: translateX(0);
 }
 
 .lang-btn {
+  position: relative;
+  z-index: 2;
   background: transparent;
   border: none;
   color: var(--secondary);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
-  padding: 3px 8px;
+  min-width: 28px;
+  padding: 3px 6px;
+  text-align: center;
   border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.2s ease;
   line-height: 1.2;
 }
 
@@ -139,7 +167,6 @@ body {
 }
 
 .lang-btn.active {
-  background: var(--primary);
   color: var(--text-inverted);
 }
 

@@ -2,6 +2,7 @@ import { getSettings, saveSettings, resetSettings, DEFAULT_SETTINGS } from './se
 import { resolveLanguage, t } from './i18n.js';
 
 // DOM Element References
+const langSwitch = document.getElementById('lang-switch');
 const langButtons = document.querySelectorAll('.lang-btn');
 
 const qualityJpgInput = document.getElementById('quality-jpg');
@@ -66,6 +67,11 @@ function applyTranslations(lang) {
       el.placeholder = t(key, lang);
     }
   });
+
+  // Update data-active attribute on container for sliding animation
+  if (langSwitch) {
+    langSwitch.setAttribute('data-active', lang);
+  }
 
   // Update active button state in language switcher
   langButtons.forEach(btn => {
