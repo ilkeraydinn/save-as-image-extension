@@ -45,19 +45,22 @@ export const TRANSLATIONS = {
 
     // Footer
     btnReset: "Varsayılanlara Sıfırla",
-    footerHint: "Görselin üzerine sağ tıklayıp istediğiniz formatta kaydedin.",
+    footerHint: "Görselin üzerine sağ tıklayıp istediğiniz formatta kaydedin veya panoya kopyalayın.",
 
     // Context Menus
     menuParent: "Görseli Farklı Kaydet",
     menuJpg: "JPG olarak kaydet",
     menuPng: "PNG olarak kaydet",
     menuWebp: "WEBP olarak kaydet",
+    menuCopy: "Görseli panoya kopyala",
 
     // Notifications
     notifStartTitle: "Görsel Hazırlanıyor",
     notifStartBody: "Görsel indiriliyor ve dönüştürülüyor...",
     notifSuccessTitle: "Görsel İndirildi",
     notifSuccessBody: "{name} başarıyla kaydedildi.",
+    notifCopySuccessTitle: "Panoya Kopyalandı",
+    notifCopySuccessBody: "Görsel panoya başarıyla kopyalandı.",
     notifErrorTitle: "Dönüştürme Hatası",
     notifGenericError: "Görsel dönüştürülürken bir hata oluştu.",
 
@@ -66,6 +69,7 @@ export const TRANSLATIONS = {
     errBlobUrl: "Bu görsel sayfa içi geçici bir bellek nesnesidir (blob URL). Tarayıcı güvenlik kısıtlamaları nedeniyle doğrudan indirilemedi.",
     errDataUrl: "Data URL okunamadı: {err}",
     errNotFound: "Görsel sunucuda bulunamadı (404 Not Found).",
+    errClipboardCopy: "Görsel panoya kopyalanamadı. Tarayıcı veya sayfa panoya erişim izni vermemiş olabilir.",
     errOffscreenConnect: "Dönüştürme modülü ile bağlantı kurulamadı. Lütfen eklentiyi yenileyip tekrar deneyin.",
     errOffscreenResponse: "Dönüştürme modülünden yanıt alınamadı.",
     errDimensions: "Görsel boyutları geçersiz veya 0 piksel.",
@@ -113,19 +117,22 @@ export const TRANSLATIONS = {
 
     // Footer
     btnReset: "Reset to Defaults",
-    footerHint: "Right-click any web image and save it in your preferred format.",
+    footerHint: "Right-click any web image and save it in your preferred format or copy to clipboard.",
 
     // Context Menus
     menuParent: "Save as Image",
     menuJpg: "Save as JPG",
     menuPng: "Save as PNG",
     menuWebp: "Save as WEBP",
+    menuCopy: "Copy image to clipboard",
 
     // Notifications
     notifStartTitle: "Preparing Image",
     notifStartBody: "Downloading and converting image...",
     notifSuccessTitle: "Image Saved",
     notifSuccessBody: "{name} has been saved successfully.",
+    notifCopySuccessTitle: "Copied to Clipboard",
+    notifCopySuccessBody: "Image has been successfully copied to clipboard.",
     notifErrorTitle: "Conversion Error",
     notifGenericError: "An error occurred while converting the image.",
 
@@ -134,6 +141,7 @@ export const TRANSLATIONS = {
     errBlobUrl: "This image is a temporary page-scoped blob URL and cannot be downloaded directly due to browser security restrictions.",
     errDataUrl: "Failed to read Data URL: {err}",
     errNotFound: "Image not found on server (404 Not Found).",
+    errClipboardCopy: "Failed to copy image to clipboard. Browser or page may not have granted clipboard access.",
     errOffscreenConnect: "Could not establish connection with converter module. Please reload the extension.",
     errOffscreenResponse: "No response received from converter module.",
     errDimensions: "Invalid or zero-dimension image.",

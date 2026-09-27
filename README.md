@@ -6,7 +6,11 @@ A Google Chrome extension (Manifest V3) that allows you to convert and save imag
 
 ## Features
 
-- **Context Menu Conversion:** Right-click any image and save it as JPG, PNG, or WEBP.
+- **Context Menu Conversion & Copy:** Right-click any image to:
+  - Save as **JPG**
+  - Save as **PNG**
+  - Save as **WEBP**
+  - **Copy to Clipboard** (direct PNG copy without downloading to disk)
 - **Settings Popup:**
   - Adjust compression quality for JPG and WEBP.
   - Set a background fill color (white, black, or custom) when saving transparent images as JPG.
@@ -14,7 +18,7 @@ A Google Chrome extension (Manifest V3) that allows you to convert and save imag
   - Toggle desktop notifications (start, success, error).
 - **Bilingual Support:** Switch easily between English and Turkish from the popup.
 - **Safe Filenames:** Automatically extracts and cleans filenames from URLs, removing illegal characters and preserving the name.
-- **Manifest V3:** Uses Chrome's Offscreen Document API for canvas-based conversions without running heavy background scripts.
+- **Manifest V3:** Uses Chrome's Offscreen Document API and Async Clipboard API for lightweight, background-friendly operations.
 
 ---
 
@@ -31,8 +35,8 @@ A Google Chrome extension (Manifest V3) that allows you to convert and save imag
 
 1. **(Optional)** Click the extension icon in your toolbar to adjust settings (language, quality, folder, etc.).
 2. Right-click on any image on a webpage.
-3. Hover over **Save as Image** and choose your desired format (**JPG**, **PNG**, or **WEBP**).
-4. The converted image will be saved to your Downloads folder.
+3. Hover over **Save as Image** and choose your desired action (**JPG**, **PNG**, **WEBP**, or **Copy to Clipboard**).
+4. For downloads, the converted image will be saved to your Downloads folder. For clipboard, the image is immediately ready to paste (`Ctrl+V`) into Discord, Slack, Photoshop, Word, etc.
 
 ---
 

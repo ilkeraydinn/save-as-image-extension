@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Save as Image",
-  "version": "1.4.0",
-  "description": "Convert and save any image on the web to JPG, PNG, or WEBP with a single click. Web sitelerindeki görselleri sağ tıklayarak JPG, PNG veya WEBP formatında kaydetmenizi sağlar.",
+  "version": "1.5.0",
+  "description": "Convert and save any image on the web to JPG, PNG, or WEBP with a single click, or copy directly to clipboard. Web sitelerindeki görselleri sağ tıklayarak JPG, PNG veya WEBP formatında kaydetmenizi veya panoya kopyalamanızı sağlar.",
   "permissions": [
     "contextMenus",
     "downloads",
     "offscreen",
     "notifications",
-    "storage"
+    "storage",
+    "clipboardWrite",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"

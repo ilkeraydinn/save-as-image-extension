@@ -1,6 +1,5 @@
 import { t } from './i18n.js';
 
-// Listen for messages from the service worker (background.js)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'convert-image') {
     convertImage(message.sourceDataUrl, message.format, {
@@ -16,6 +15,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: false, error: error.message });
       });
     return true; // Keeps the message channel open for asynchronous response
+  }
+
+  if (message.type === 'copy-to-clipboard') {
+    copyDataUrlToClipboard(message.dataUrl)
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch(error => {
+        console.warn('Offscreen direct clipboard write failed:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true;
   }
 });
 
@@ -113,4 +124,21 @@ async function convertImage(sourceDataUrl, format, options = {}) {
     
     img.src = sourceDataUrl;
   });
+}
+
+/**
+ * Copies a PNG Data URL to the system clipboard using the Async Clipboard API.
+ * 
+ * @param {string} dataUrl 
+ * @returns {Promise<void>}
+ */
+async function copyDataUrlToClipboard(dataUrl) {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
+    const item = new ClipboardItem({ 'image/png': blob });
+    await navigator.clipboard.write([item]);
+  } else {
+    throw new Error('ClipboardItem / navigator.clipboard API is unavailable in this environment.');
+  }
 }

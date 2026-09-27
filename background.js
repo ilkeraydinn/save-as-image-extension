@@ -58,6 +58,13 @@ function setupContextMenus(lang) {
       contexts: ['image']
     });
 
+    chrome.contextMenus.create({
+      id: 'copy-to-clipboard',
+      parentId: 'save-as-image',
+      title: t('menuCopy', lang),
+      contexts: ['image']
+    });
+
     console.log(`Save as Image context menus initialized for language: ${lang}`);
   });
 }
@@ -188,6 +195,137 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     } finally {
       activeConversionsCount = Math.max(0, activeConversionsCount - 1);
       // Schedule offscreen document closure after 30 seconds of inactivity to keep it warm for consecutive saves
+      if (activeConversionsCount === 0) {
+        scheduleOffscreenClose();
+      }
+    }
+  }
+
+  // Handle Copy to Clipboard (converts image to PNG and writes directly to clipboard without downloading)
+  if (menuItemId === 'copy-to-clipboard') {
+    const srcUrl = info.srcUrl;
+    console.log(`Copy to clipboard initiated for: ${srcUrl}`);
+
+    const settings = await getSettings();
+    const lang = resolveLanguage(settings.language);
+
+    try {
+      activeConversionsCount++;
+      cancelOffscreenClose();
+
+      // Show starting notification if enabled
+      if (settings.showStartNotification) {
+        showNotification(
+          'conversion-start',
+          t('notifStartTitle', lang),
+          t('notifStartBody', lang),
+          0
+        );
+      }
+
+      console.log(`Fetching image for clipboard: ${srcUrl}`);
+      const blob = await fetchWithTimeoutAndFallback(srcUrl, lang);
+
+      const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
+      if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
+        throw new Error(t('errNotAnImage', lang, { type: blob.type }));
+      }
+
+      const sourceDataUrl = await blobToDataURL(blob);
+      await ensureOffscreenDocumentWithTimeout();
+
+      // Convert to clean PNG Data URL for system clipboard
+      const convertResponse = await sendMessageWithRetry({
+        type: 'convert-image',
+        sourceDataUrl: sourceDataUrl,
+        format: 'png',
+        quality: 1.0,
+        backgroundColor: '#ffffff',
+        lang: lang
+      }, 10, 100, lang);
+
+      if (!convertResponse || !convertResponse.success) {
+        throw new Error(convertResponse ? convertResponse.error : t('errOffscreenResponse', lang));
+      }
+
+      const pngDataUrl = convertResponse.dataUrl;
+
+      // Primary attempt: copy via offscreen document
+      let copied = false;
+      try {
+        const offscreenCopyRes = await sendMessageWithRetry({
+          type: 'copy-to-clipboard',
+          dataUrl: pngDataUrl
+        }, 5, 100, lang);
+        if (offscreenCopyRes && offscreenCopyRes.success) {
+          copied = true;
+        }
+      } catch (offErr) {
+        console.warn('Offscreen direct copy failed, attempting tab execution fallback:', offErr);
+      }
+
+      // Secondary attempt: execute script in active tab where document has user focus
+      if (!copied && tab && tab.id && chrome.scripting) {
+        try {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: async (dataUrl) => {
+              try {
+                const res = await fetch(dataUrl);
+                const b = await res.blob();
+                if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
+                  const item = new ClipboardItem({ 'image/png': b });
+                  await navigator.clipboard.write([item]);
+                  return { success: true };
+                }
+                return { success: false, error: 'Clipboard API not supported in tab' };
+              } catch (e) {
+                return { success: false, error: e.message };
+              }
+            },
+            args: [pngDataUrl]
+          });
+
+          if (results && results[0] && results[0].result && results[0].result.success) {
+            copied = true;
+          } else if (results && results[0] && results[0].result && results[0].result.error) {
+            console.warn('Tab executeScript clipboard write returned error:', results[0].result.error);
+          }
+        } catch (scriptErr) {
+          console.warn('Tab executeScript failed:', scriptErr);
+        }
+      }
+
+      if (!copied) {
+        throw new Error(t('errClipboardCopy', lang));
+      }
+
+      // Clear start notification as soon as copy succeeds
+      chrome.notifications.clear('conversion-start');
+
+      // Show success notification if enabled (auto-clears after 4 seconds)
+      if (settings.showSuccessNotification) {
+        showNotification(
+          'copy-success',
+          t('notifCopySuccessTitle', lang),
+          t('notifCopySuccessBody', lang),
+          4000
+        );
+      }
+    } catch (error) {
+      console.error('Failed to copy image to clipboard:', error);
+      chrome.notifications.clear('conversion-start');
+
+      if (settings.showErrorNotification) {
+        showNotification(
+          'conversion-error',
+          t('notifErrorTitle', lang),
+          error.message || t('notifGenericError', lang),
+          6000
+        );
+      }
+    } finally {
+      activeConversionsCount = Math.max(0, activeConversionsCount - 1);
       if (activeConversionsCount === 0) {
         scheduleOffscreenClose();
       }
@@ -338,8 +476,8 @@ async function ensureOffscreenDocumentWithTimeout(timeoutMs = 4000) {
       await Promise.race([
         chrome.offscreen.createDocument({
           url: 'offscreen.html',
-          reasons: ['DOM_PARSER'],
-          justification: 'Drawing image onto HTML canvas to perform cross-format conversion.'
+          reasons: ['DOM_PARSER', 'CLIPBOARD'],
+          justification: 'Drawing image onto HTML canvas and interacting with clipboard.'
         }),
         timeoutPromise
       ]);
