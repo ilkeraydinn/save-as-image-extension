@@ -11,12 +11,28 @@ let offscreenCloseTimeoutId = null; // 30s idle timer to keep offscreen warm for
 let currentMenuLang = null;
 let menuSetupChain = Promise.resolve();
 
-// Setup context menus safely when extension is installed or reloaded
-chrome.runtime.onInstalled.addListener(async () => {
+/**
+ * Reads active language and ensures context menus are up to date.
+ *
+ * @param {boolean} [force=false]
+ */
+async function initContextMenus(force = false) {
   const settings = await getSettings();
   const lang = resolveLanguage(settings.language);
-  setupContextMenus(lang, true);
+  setupContextMenus(lang, force);
+}
+
+// Setup context menus when extension is installed, updated, or browser starts
+chrome.runtime.onInstalled.addListener(() => {
+  initContextMenus(true);
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  initContextMenus(true);
+});
+
+// Ensure menus are synced when the service worker wakes up
+initContextMenus(false);
 
 // Update context menus dynamically when language preference changes
 chrome.storage.onChanged.addListener((changes, areaName) => {
