@@ -1,3 +1,23 @@
+const WINDOWS_RESERVED_NAMES = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+]);
+
+/**
+ * Safely decodes a URI component without throwing on malformed percent sequences.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function safeDecodeURIComponent(str) {
+  try {
+    return decodeURIComponent(str);
+  } catch (e) {
+    return str;
+  }
+}
+
 /**
  * Parses an image URL and generates a clean, safe filename with the target extension.
  * Ensures strict compatibility with Windows and Unix file systems.
@@ -26,7 +46,7 @@ export function getFilenameFromUrl(urlStr, format) {
 
   try {
     const url = new URL(urlStr);
-    let pathname = decodeURIComponent(url.pathname);
+    const pathname = safeDecodeURIComponent(url.pathname);
     
     // Get the last segment of the path
     let filename = pathname.substring(pathname.lastIndexOf('/') + 1);
@@ -39,7 +59,8 @@ export function getFilenameFromUrl(urlStr, format) {
       for (const param of paramCandidates) {
         const val = searchParams.get(param);
         if (val && val.trim()) {
-          filename = val.trim();
+          const decodedVal = safeDecodeURIComponent(val.trim());
+          filename = decodedVal.substring(decodedVal.lastIndexOf('/') + 1);
           break;
         }
       }
@@ -63,17 +84,14 @@ export function getFilenameFromUrl(urlStr, format) {
     // Clean up illegal filename characters (especially Windows: < > : " / \ | ? *)
     filename = filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
     
-    // Strip trailing dots and spaces (forbidden on Windows filesystems)
-    filename = filename.replace(/[\.\s]+$/g, '').trim();
+    // Limit length first, then strip leading/trailing dots and spaces (forbidden on Windows filesystems)
+    filename = filename.substring(0, 100).replace(/^[\.\s]+|[\.\s]+$/g, '').trim();
 
-    // Check Windows reserved filenames
-    const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
-    if (reservedNames.includes(filename.toUpperCase())) {
+    // Check Windows reserved filenames (including "CON.backup" style base names)
+    const basePart = filename.split('.')[0].toUpperCase();
+    if (WINDOWS_RESERVED_NAMES.has(basePart)) {
       filename = `${filename}_image`;
     }
-
-    // Limit length
-    filename = filename.substring(0, 100).trim();
 
     if (!filename) {
       return defaultName;
@@ -84,4 +102,34 @@ export function getFilenameFromUrl(urlStr, format) {
     console.error('Error parsing filename from URL:', e);
     return defaultName;
   }
+}
+
+/**
+ * Sanitizes a user-provided relative subfolder path for chrome.downloads.download.
+ *
+ * @param {string} folderStr
+ * @returns {string}
+ */
+export function sanitizeSubfolder(folderStr) {
+  if (!folderStr || typeof folderStr !== 'string') return '';
+
+  const segments = folderStr
+    .replace(/\\/g, '/')
+    .split('/')
+    .map(segment => {
+      let clean = segment
+        .replace(/\.\.+/g, '')
+        .replace(/[<>:"|?*\x00-\x1F]/g, '')
+        .replace(/^[\.\s]+|[\.\s]+$/g, '')
+        .trim();
+      if (!clean) return '';
+      const basePart = clean.split('.')[0].toUpperCase();
+      if (WINDOWS_RESERVED_NAMES.has(basePart)) {
+        clean = `${clean}_folder`;
+      }
+      return clean;
+    })
+    .filter(Boolean);
+
+  return segments.join('/');
 }

@@ -1,6 +1,6 @@
 /* Save as Image - Swiss Modernist / Warm Minimalist Design System */
 :root {
-  /* Color System */
+  /* Light Theme Color System */
   --primary: #111111;
   --secondary: #66635E;
   --tertiary: #A8A49D;
@@ -26,8 +26,30 @@
   --radius-lg: 14px;
   
   /* Typography */
-  --font-sans: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: 'Hanken Grotesk', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, "Cascadia Mono", "Segoe UI Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Dark Theme Color System (from Style Guide — Dark Theme) */
+:root[data-theme="dark"] {
+  --primary: #F5F3EE;
+  --secondary: #8B877F;
+  --tertiary: #4E4A43;
+  --neutral: #0C0C0C;
+
+  --bg-page: #0C0C0C;
+  --bg-card: #141413;
+  --bg-card-hover: #191817;
+  --bg-subtle: #1E1D1B;
+
+  --border-light: #24221F;
+  --border-medium: #33302B;
+  --border-focus: #F5F3EE;
+
+  --text-primary: #F5F3EE;
+  --text-secondary: #8B877F;
+  --text-muted: #4E4A43;
+  --text-inverted: #0C0C0C;
 }
 
 * {
@@ -36,15 +58,21 @@
   padding: 0;
 }
 
+html,
 body {
   width: 360px;
   font-family: var(--font-sans);
   background-color: var(--bg-page);
   color: var(--text-primary);
   line-height: 1.45;
-  overflow-x: hidden;
+  overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+::-webkit-scrollbar {
+  display: none;
 }
 
 .popup-container {
@@ -96,6 +124,12 @@ body {
   white-space: nowrap;
 }
 
+.badge-slot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .badge {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -107,13 +141,56 @@ body {
   border: 1px solid var(--border-medium);
   white-space: nowrap;
   flex-shrink: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.badge-slot:has(.save-status.visible) .badge {
+  opacity: 0;
+  transform: scale(0.92);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+/* Theme Toggle Button */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.theme-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.icon-sun {
+  display: none;
+}
+
+:root[data-theme="dark"] .icon-moon {
+  display: none;
+}
+
+:root[data-theme="dark"] .icon-sun {
+  display: block;
 }
 
 /* Segmented Language Switcher with Sliding Pill */
@@ -179,6 +256,9 @@ body {
 
 /* Save Status Indicator */
 .save-status {
+  position: absolute;
+  left: 0;
+  top: 50%;
   display: inline-flex;
   align-items: center;
   gap: 3.5px;
@@ -190,7 +270,7 @@ body {
   padding: 1.5px 6px;
   border-radius: var(--radius-xs);
   opacity: 0;
-  transform: scale(0.92);
+  transform: translateY(-50%) scale(0.92);
   transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
   white-space: nowrap;
@@ -199,7 +279,7 @@ body {
 
 .save-status.visible {
   opacity: 1;
-  transform: scale(1);
+  transform: translateY(-50%) scale(1);
 }
 
 .check-icon {
@@ -304,8 +384,8 @@ body {
   height: 16px;
   border-radius: 50%;
   background: var(--primary);
-  border: 2px solid #FFFFFF;
-  box-shadow: 0 1px 3px rgba(17, 17, 17, 0.25);
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease;
 }
@@ -409,13 +489,24 @@ body {
 }
 
 .btn-primary-dark {
-  background: var(--primary);
-  border: 1px solid var(--primary);
-  color: var(--text-inverted);
+  background: #111111;
+  border: 1px solid #111111;
+  color: #FBF9F5;
 }
 
 .btn-primary-dark:hover {
   background: #2a2a28;
+}
+
+:root[data-theme="dark"] .btn-primary-dark {
+  background: #0C0C0C;
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .btn-primary-dark:hover {
+  border-color: var(--primary);
+  background: #1E1D1B;
 }
 
 .color-dot {
@@ -431,6 +522,7 @@ body {
 
 .color-dot.black {
   background-color: #000000;
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 /* Text Input for Folder */
@@ -476,83 +568,6 @@ body {
 .text-input::placeholder {
   color: var(--tertiary);
   font-family: var(--font-sans);
-}
-
-/* Switch / Toggles */
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 0;
-}
-
-.switch-row:not(:last-child) {
-  border-bottom: 1px solid var(--border-light);
-}
-
-.switch-text {
-  display: flex;
-  flex-direction: column;
-}
-
-.switch-label {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.switch-sub {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 34px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--border-medium);
-  transition: 0.2s ease;
-  border-radius: 20px;
-}
-
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 14px;
-  width: 14px;
-  left: 2px;
-  bottom: 2px;
-  background-color: #ffffff;
-  transition: 0.2s ease;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-}
-
-input:checked + .toggle-slider {
-  background-color: var(--primary);
-}
-
-input:checked + .toggle-slider:before {
-  transform: translateX(16px);
 }
 
 /* Footer */

@@ -1,4 +1,4 @@
-import { getFilenameFromUrl } from './helpers.js';
+import { getFilenameFromUrl, sanitizeSubfolder } from './helpers.js';
 import { getSettings } from './settings.js';
 import { resolveLanguage, t } from './i18n.js';
 
@@ -7,353 +7,366 @@ let activeConversionsCount = 0;
 let isOffscreenCreating = null; // Promise lock for offscreen creation to avoid race conditions
 let offscreenCloseTimeoutId = null; // 30s idle timer to keep offscreen warm for consecutive saves
 
+// Track context menu state to prevent duplicate creation race conditions
+let currentMenuLang = null;
+let menuSetupChain = Promise.resolve();
+
 // Setup context menus safely when extension is installed or reloaded
 chrome.runtime.onInstalled.addListener(async () => {
   const settings = await getSettings();
   const lang = resolveLanguage(settings.language);
-  setupContextMenus(lang);
+  setupContextMenus(lang, true);
 });
 
 // Update context menus dynamically when language preference changes
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.language) {
     const newLang = resolveLanguage(changes.language.newValue);
-    setupContextMenus(newLang);
+    setupContextMenus(newLang, false);
   }
 });
 
 /**
  * Creates or updates the right-click context menu in the active language.
+ * Serialized and deduplicated to prevent duplicate menu ID errors when sync & local storage both fire.
  * 
  * @param {'tr' | 'en'} lang
+ * @param {boolean} [force=false]
  */
-function setupContextMenus(lang) {
-  chrome.contextMenus.removeAll(() => {
-    // Parent menu
-    chrome.contextMenus.create({
-      id: 'save-as-image',
-      title: t('menuParent', lang),
-      contexts: ['image']
-    });
+function setupContextMenus(lang, force = false) {
+  if (!force && currentMenuLang === lang) {
+    return;
+  }
+  currentMenuLang = lang;
 
-    // Submenu options
-    chrome.contextMenus.create({
-      id: 'save-as-jpg',
-      parentId: 'save-as-image',
-      title: t('menuJpg', lang),
-      contexts: ['image']
-    });
+  menuSetupChain = menuSetupChain.then(() => new Promise((resolve) => {
+    chrome.contextMenus.removeAll(() => {
+      // Ignore any runtime.lastError from removeAll
+      void chrome.runtime.lastError;
 
-    chrome.contextMenus.create({
-      id: 'save-as-png',
-      parentId: 'save-as-image',
-      title: t('menuPng', lang),
-      contexts: ['image']
-    });
+      const items = [
+        {
+          id: 'save-as-image',
+          title: t('menuParent', lang),
+          contexts: ['image']
+        },
+        {
+          id: 'save-as-jpg',
+          parentId: 'save-as-image',
+          title: t('menuJpg', lang),
+          contexts: ['image']
+        },
+        {
+          id: 'save-as-png',
+          parentId: 'save-as-image',
+          title: t('menuPng', lang),
+          contexts: ['image']
+        },
+        {
+          id: 'save-as-webp',
+          parentId: 'save-as-image',
+          title: t('menuWebp', lang),
+          contexts: ['image']
+        },
+        {
+          id: 'copy-to-clipboard',
+          parentId: 'save-as-image',
+          title: t('menuCopy', lang),
+          contexts: ['image']
+        }
+      ];
 
-    chrome.contextMenus.create({
-      id: 'save-as-webp',
-      parentId: 'save-as-image',
-      title: t('menuWebp', lang),
-      contexts: ['image']
-    });
+      for (const item of items) {
+        chrome.contextMenus.create(item, () => {
+          void chrome.runtime.lastError;
+        });
+      }
 
-    chrome.contextMenus.create({
-      id: 'copy-to-clipboard',
-      parentId: 'save-as-image',
-      title: t('menuCopy', lang),
-      contexts: ['image']
+      console.log(`Save as Image context menus initialized for language: ${lang}`);
+      resolve();
     });
-
-    console.log(`Save as Image context menus initialized for language: ${lang}`);
-  });
+  }));
 }
 
 // Listen for context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const menuItemId = info.menuItemId;
-  
-  if (['save-as-jpg', 'save-as-png', 'save-as-webp'].includes(menuItemId)) {
-    let format = 'png';
-    if (menuItemId === 'save-as-jpg') format = 'jpeg';
-    if (menuItemId === 'save-as-webp') format = 'webp';
+  const isSaveAction = ['save-as-jpg', 'save-as-png', 'save-as-webp'].includes(menuItemId);
+  const isCopyAction = menuItemId === 'copy-to-clipboard';
 
-    const srcUrl = info.srcUrl;
-    console.log(`Conversion initiated. Target format: ${format}, Source URL: ${srcUrl}`);
+  if (!isSaveAction && !isCopyAction) {
+    return;
+  }
 
-    // Load active user preferences
-    const settings = await getSettings();
-    const lang = resolveLanguage(settings.language);
+  let format = 'png';
+  if (menuItemId === 'save-as-jpg') format = 'jpeg';
+  if (menuItemId === 'save-as-webp') format = 'webp';
 
-    try {
-      activeConversionsCount++;
-      cancelOffscreenClose(); // Keep document active while in use
+  const srcUrl = info.srcUrl;
+  console.log(`Action initiated (${menuItemId}). Target format: ${format}, Source URL: ${srcUrl}`);
 
-      // 1. Show starting notification if enabled
-      if (settings.showStartNotification) {
-        showNotification(
-          'conversion-start',
-          t('notifStartTitle', lang),
-          t('notifStartBody', lang),
-          0
-        );
-      }
+  const settings = await getSettings();
+  const lang = resolveLanguage(settings.language);
 
-      // 2. Fetch the image directly in the service worker context with timeout and credential fallback
-      console.log(`Fetching image: ${srcUrl}`);
-      let blob = await fetchWithTimeoutAndFallback(srcUrl, lang);
-      
-      // Safety check: Reject only explicit non-image MIME types (HTML error pages, JSON, XML)
-      const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
-      if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
-        throw new Error(t('errNotAnImage', lang, { type: blob.type }));
-      }
+  try {
+    activeConversionsCount++;
+    cancelOffscreenClose(); // Keep document active while in use
 
-      // Convert Blob to Data URL using FileReader in Service Worker
-      console.log('Converting blob to data URL...');
-      const sourceDataUrl = await blobToDataURL(blob);
+    // 1. Fetch the image and convert to Data URL (supports http/https, data:, and tab/frame-scoped blob: URLs)
+    console.log(`Fetching image: ${srcUrl}`);
+    const sourceDataUrl = await fetchImageAsDataUrl(srcUrl, tab, info.frameId, lang);
 
-      // 3. Open offscreen document with timeout protection (or reuse existing)
+    // Fast-path: If target format is PNG and source is already a valid PNG, skip Offscreen Canvas re-encoding
+    const isAlreadyPng = /^data:image\/png[;,]/i.test(sourceDataUrl);
+    let finalOutputUrl = null;
+
+    if (format === 'png' && isAlreadyPng) {
+      console.log('Source image is already PNG. Skipping Canvas re-encoding for optimal speed and lossless quality.');
+      finalOutputUrl = sourceDataUrl;
+    } else {
+      // 2. Open offscreen document with timeout protection (or reuse existing)
       await ensureOffscreenDocumentWithTimeout();
 
       // Determine compression quality based on format and user settings
-      let targetQuality = 0.95;
-      if (format === 'jpeg') {
-        targetQuality = (settings.qualityJpg || 95) / 100;
-      } else if (format === 'webp') {
-        targetQuality = (settings.qualityWebp || 95) / 100;
+      let targetQuality = 1.0;
+      if (isSaveAction) {
+        if (format === 'jpeg') {
+          targetQuality = (settings.qualityJpg || 95) / 100;
+        } else if (format === 'webp') {
+          targetQuality = (settings.qualityWebp || 95) / 100;
+        } else {
+          targetQuality = 0.95;
+        }
       }
 
-      // 4. Send conversion request with retry mechanism to offscreen document
-      console.log(`Sending data URL to offscreen canvas (Quality: ${targetQuality}, Bg: ${settings.jpgBgColor})...`);
+      // 3. Send conversion request with retry mechanism to offscreen document
+      // Request lightweight 'blobUrl' for downloads to avoid 2nd Base64 encoding & IPC overhead
+      const returnType = isSaveAction ? 'blobUrl' : 'dataUrl';
+      console.log(`Sending data URL to offscreen canvas (Format: ${format}, Quality: ${targetQuality}, Return: ${returnType})...`);
       const response = await sendMessageWithRetry({
         type: 'convert-image',
         sourceDataUrl: sourceDataUrl,
         format: format,
         quality: targetQuality,
         backgroundColor: settings.jpgBgColor || '#ffffff',
+        returnType: returnType,
         lang: lang
       }, 10, 100, lang);
 
-      if (response && response.success) {
-        // Clear starting notification as soon as conversion succeeds
-        chrome.notifications.clear('conversion-start');
-
-        // 5. Generate clean filename
-        let filename = getFilenameFromUrl(srcUrl, format);
-
-        // Prepend custom subfolder if configured (sanitizing directory traversal)
-        if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
-          const cleanFolder = settings.downloadSubfolder
-            .trim()
-            .replace(/\.\.+/g, '') // remove directory traversal
-            .replace(/[<>:"|?*\\]/g, '')
-            .replace(/^\/+|\/+$/g, '')
-            .replace(/\/+/g, '/'); // collapse consecutive slashes
-            
-          if (cleanFolder) {
-            filename = `${cleanFolder}/${filename}`;
-          }
-        }
-
-        console.log(`Conversion successful. Starting download: ${filename}`);
-
-        // 6. Download the file using returned self-contained Data URL
-        await chrome.downloads.download({
-          url: response.dataUrl,
-          filename: filename,
-          conflictAction: 'uniquify'
-        });
-
-        // 7. Show success notification if enabled (auto-clears after 4 seconds)
-        if (settings.showSuccessNotification) {
-          const displayFileName = filename.includes('/') ? filename.substring(filename.lastIndexOf('/') + 1) : filename;
-          showNotification(
-            'conversion-success',
-            t('notifSuccessTitle', lang),
-            t('notifSuccessBody', lang, { name: displayFileName }),
-            4000
-          );
-        }
-      } else {
+      if (!response || !response.success) {
         throw new Error(response ? response.error : t('errOffscreenResponse', lang));
       }
-    } catch (error) {
-      console.error('Failed to convert and download image:', error);
-      // Clear starting notification on error
-      chrome.notifications.clear('conversion-start');
 
-      // Show failure notification if enabled (auto-clears after 6 seconds)
-      if (settings.showErrorNotification) {
-        showNotification(
-          'conversion-error',
-          t('notifErrorTitle', lang),
-          error.message || t('notifGenericError', lang),
-          6000
-        );
+      finalOutputUrl = response.dataUrl;
+    }
+
+    if (isSaveAction) {
+      // 4A. Generate clean filename and prepend optional subfolder
+      let filename = getFilenameFromUrl(srcUrl, format);
+      const cleanFolder = sanitizeSubfolder(settings.downloadSubfolder);
+      if (cleanFolder) {
+        filename = `${cleanFolder}/${filename}`;
       }
-    } finally {
-      activeConversionsCount = Math.max(0, activeConversionsCount - 1);
-      // Schedule offscreen document closure after 30 seconds of inactivity to keep it warm for consecutive saves
-      if (activeConversionsCount === 0) {
-        scheduleOffscreenClose();
+
+      console.log(`Starting download: ${filename}`);
+
+      await chrome.downloads.download({
+        url: finalOutputUrl,
+        filename: filename,
+        conflictAction: 'uniquify'
+      });
+
+      // Revoke temporary offscreen Object URL after download stream has started
+      if (finalOutputUrl && finalOutputUrl.startsWith('blob:')) {
+        setTimeout(() => {
+          chrome.runtime.sendMessage({ type: 'revoke-blob-url', blobUrl: finalOutputUrl }).catch(() => {});
+        }, 10000);
       }
+    } else if (isCopyAction) {
+      // 4B. Copy PNG Data URL to system clipboard
+      await copyPngDataUrlToClipboard(finalOutputUrl, tab, lang);
+      console.log('Image copied to clipboard successfully.');
+    }
+  } catch (error) {
+    console.error(`Failed to execute ${menuItemId}:`, error);
+  } finally {
+    activeConversionsCount = Math.max(0, activeConversionsCount - 1);
+    if (activeConversionsCount === 0) {
+      scheduleOffscreenClose();
     }
   }
+});
 
-  // Handle Copy to Clipboard (converts image to PNG and writes directly to clipboard without downloading)
-  if (menuItemId === 'copy-to-clipboard') {
-    const srcUrl = info.srcUrl;
-    console.log(`Copy to clipboard initiated for: ${srcUrl}`);
+/**
+ * Copies a PNG Data URL to the system clipboard, preferring focused tab execution and falling back to offscreen.
+ */
+async function copyPngDataUrlToClipboard(pngDataUrl, tab, lang) {
+  let copied = false;
 
-    const settings = await getSettings();
-    const lang = resolveLanguage(settings.language);
-
+  // Primary attempt: execute script in active tab where document has user focus (required by navigator.clipboard.write)
+  if (tab && tab.id && chrome.scripting) {
     try {
-      activeConversionsCount++;
-      cancelOffscreenClose();
-
-      // Show starting notification if enabled
-      if (settings.showStartNotification) {
-        showNotification(
-          'conversion-start',
-          t('notifStartTitle', lang),
-          t('notifStartBody', lang),
-          0
-        );
-      }
-
-      console.log(`Fetching image for clipboard: ${srcUrl}`);
-      const blob = await fetchWithTimeoutAndFallback(srcUrl, lang);
-
-      const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
-      if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
-        throw new Error(t('errNotAnImage', lang, { type: blob.type }));
-      }
-
-      const sourceDataUrl = await blobToDataURL(blob);
-      await ensureOffscreenDocumentWithTimeout();
-
-      // Convert to clean PNG Data URL for system clipboard
-      const convertResponse = await sendMessageWithRetry({
-        type: 'convert-image',
-        sourceDataUrl: sourceDataUrl,
-        format: 'png',
-        quality: 1.0,
-        backgroundColor: '#ffffff',
-        lang: lang
-      }, 10, 100, lang);
-
-      if (!convertResponse || !convertResponse.success) {
-        throw new Error(convertResponse ? convertResponse.error : t('errOffscreenResponse', lang));
-      }
-
-      const pngDataUrl = convertResponse.dataUrl;
-
-      // Primary attempt: copy via offscreen document
-      let copied = false;
-      try {
-        const offscreenCopyRes = await sendMessageWithRetry({
-          type: 'copy-to-clipboard',
-          dataUrl: pngDataUrl
-        }, 5, 100, lang);
-        if (offscreenCopyRes && offscreenCopyRes.success) {
-          copied = true;
-        }
-      } catch (offErr) {
-        console.warn('Offscreen direct copy failed, attempting tab execution fallback:', offErr);
-      }
-
-      // Secondary attempt: execute script in active tab where document has user focus
-      if (!copied && tab && tab.id && chrome.scripting) {
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            func: async (dataUrl) => {
-              try {
-                try { window.focus(); } catch (f) { /* ignore */ }
-                const res = await fetch(dataUrl);
-                const b = await res.blob();
-                if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
-                  const item = new ClipboardItem({ 'image/png': b });
-                  await navigator.clipboard.write([item]);
-                  return { success: true };
-                }
-              } catch (e) {
-                // Secondary fallback: image element selection copy
-                try {
-                  const img = document.createElement('img');
-                  img.src = dataUrl;
-                  const div = document.createElement('div');
-                  div.contentEditable = 'true';
-                  div.style.position = 'fixed';
-                  div.style.left = '-9999px';
-                  div.appendChild(img);
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: async (dataUrl) => {
+          try {
+            try { window.focus(); } catch (f) { /* ignore */ }
+            const res = await fetch(dataUrl);
+            const b = await res.blob();
+            if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
+              const item = new ClipboardItem({ 'image/png': b });
+              await navigator.clipboard.write([item]);
+              return { success: true };
+            }
+          } catch (e) {
+            // Fallback inside tab: wait for image element to decode before running execCommand('copy')
+            try {
+              const ok = await new Promise((resolve) => {
+                const div = document.createElement('div');
+                div.contentEditable = 'true';
+                div.style.position = 'fixed';
+                div.style.left = '-9999px';
+                div.style.top = '0';
+                div.style.opacity = '0';
+                const img = document.createElement('img');
+                img.onload = () => {
                   document.body.appendChild(div);
                   const range = document.createRange();
                   range.selectNode(img);
                   const sel = window.getSelection();
                   sel.removeAllRanges();
                   sel.addRange(range);
-                  const ok = document.execCommand('copy');
+                  const copiedOk = document.execCommand('copy');
+                  sel.removeAllRanges();
                   div.remove();
-                  if (ok) return { success: true };
-                } catch (e2) {
-                  /* ignore fallback error */
-                }
-                return { success: false, error: e.message };
-              }
-              return { success: false, error: 'Clipboard API not supported in tab' };
-            },
-            args: [pngDataUrl]
-          });
-
-          if (results && results[0] && results[0].result && results[0].result.success) {
-            copied = true;
-          } else if (results && results[0] && results[0].result && results[0].result.error) {
-            console.warn('Tab executeScript clipboard write returned error:', results[0].result.error);
+                  resolve(copiedOk);
+                };
+                img.onerror = () => resolve(false);
+                div.appendChild(img);
+                img.src = dataUrl;
+              });
+              if (ok) return { success: true };
+            } catch (e2) {
+              /* ignore fallback error */
+            }
+            return { success: false, error: e.message };
           }
-        } catch (scriptErr) {
-          console.warn('Tab executeScript failed:', scriptErr);
-        }
-      }
+          return { success: false, error: 'Clipboard API not supported in tab' };
+        },
+        args: [pngDataUrl]
+      });
 
-      if (!copied) {
-        throw new Error(t('errClipboardCopy', lang));
+      if (results && results[0] && results[0].result && results[0].result.success) {
+        copied = true;
+      } else if (results && results[0] && results[0].result && results[0].result.error) {
+        console.warn('Tab executeScript clipboard write returned error, falling back to offscreen:', results[0].result.error);
       }
-
-      // Clear start notification as soon as copy succeeds
-      chrome.notifications.clear('conversion-start');
-
-      // Show success notification if enabled (auto-clears after 4 seconds)
-      if (settings.showSuccessNotification) {
-        showNotification(
-          'copy-success',
-          t('notifCopySuccessTitle', lang),
-          t('notifCopySuccessBody', lang),
-          4000
-        );
-      }
-    } catch (error) {
-      console.error('Failed to copy image to clipboard:', error);
-      chrome.notifications.clear('conversion-start');
-
-      if (settings.showErrorNotification) {
-        showNotification(
-          'conversion-error',
-          t('notifErrorTitle', lang),
-          error.message || t('notifGenericError', lang),
-          6000
-        );
-      }
-    } finally {
-      activeConversionsCount = Math.max(0, activeConversionsCount - 1);
-      if (activeConversionsCount === 0) {
-        scheduleOffscreenClose();
-      }
+    } catch (scriptErr) {
+      console.warn('Tab executeScript unavailable, falling back to offscreen copy:', scriptErr);
     }
   }
-});
+
+  // Secondary attempt: copy via offscreen document (uses DOM selection + execCommand('copy') with CLIPBOARD permission)
+  if (!copied) {
+    try {
+      await ensureOffscreenDocumentWithTimeout();
+      const offscreenCopyRes = await sendMessageWithRetry({
+        type: 'copy-to-clipboard',
+        dataUrl: pngDataUrl
+      }, 5, 100, lang);
+      if (offscreenCopyRes && offscreenCopyRes.success) {
+        copied = true;
+      }
+    } catch (offErr) {
+      console.warn('Offscreen copy fallback failed:', offErr);
+    }
+  }
+
+  if (!copied) {
+    throw new Error(t('errClipboardCopy', lang));
+  }
+}
+
+/**
+ * Fetches an image from a URL (http/https, data:, or page-scoped blob:) and returns a Base64 Data URL.
+ */
+async function fetchImageAsDataUrl(srcUrl, tab, frameId, lang) {
+  if (srcUrl.startsWith('data:')) {
+    return srcUrl;
+  }
+
+  // Handle page-scoped blob: URLs by reading them inside the origin tab/frame
+  if (srcUrl.startsWith('blob:')) {
+    const tabDataUrl = await fetchImageViaTabScript(srcUrl, tab, frameId);
+    if (tabDataUrl) {
+      return tabDataUrl;
+    }
+    throw new Error(t('errBlobUrl', lang));
+  }
+
+  try {
+    const blob = await fetchWithTimeoutAndFallback(srcUrl, lang);
+
+    // Safety check: Reject explicit non-image MIME types (HTML error pages, JSON, XML)
+    const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
+    if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
+      throw new Error(t('errNotAnImage', lang, { type: blob.type }));
+    }
+
+    return await blobToDataURL(blob);
+  } catch (fetchErr) {
+    // If service worker fetch failed due to hotlink protection (403) or CORS, try fetching inside the tab/frame context
+    if (!fetchErr.isNotFound && tab && tab.id) {
+      const tabDataUrl = await fetchImageViaTabScript(srcUrl, tab, frameId);
+      if (tabDataUrl) {
+        return tabDataUrl;
+      }
+    }
+    throw fetchErr;
+  }
+}
+
+/**
+ * Attempts to fetch an image URL (such as a blob: URL or Referer-protected image) within the active tab/frame context.
+ */
+async function fetchImageViaTabScript(url, tab, frameId) {
+  if (!tab || !tab.id || !chrome.scripting) return null;
+  try {
+    const target = typeof frameId === 'number' && frameId > 0
+      ? { tabId: tab.id, frameIds: [frameId] }
+      : { tabId: tab.id };
+
+    const results = await chrome.scripting.executeScript({
+      target: target,
+      func: async (targetUrl) => {
+        try {
+          const response = await fetch(targetUrl);
+          if (!response.ok) return null;
+          const blob = await response.blob();
+          const nonImageTypes = ['text/html', 'text/plain', 'application/json', 'application/xml', 'text/xml'];
+          if (blob.type && nonImageTypes.includes(blob.type.toLowerCase())) {
+            return null;
+          }
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('FileReader error'));
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          return null;
+        }
+      },
+      args: [url]
+    });
+    if (results && results[0] && typeof results[0].result === 'string' && results[0].result.startsWith('data:')) {
+      return results[0].result;
+    }
+  } catch (e) {
+    console.warn('In-tab image fetch fallback failed:', e);
+  }
+  return null;
+}
 
 /**
  * Converts a Blob to a Base64 Data URL using FileReader.
@@ -371,25 +384,6 @@ function blobToDataURL(blob) {
  * Robust fetch utility with abort timeout and CORS/credential fallbacks.
  */
 async function fetchWithTimeoutAndFallback(url, lang = 'en', timeoutMs = 8000) {
-  // Direct Data URLs need no special fetch options
-  if (url.startsWith('data:')) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      return await response.blob();
-    } catch (err) {
-      clearTimeout(timeoutId);
-      throw new Error(t('errDataUrl', lang, { err: err.message }));
-    }
-  }
-
-  // Blob URLs from pages cannot be fetched in Service Worker context directly
-  if (url.startsWith('blob:')) {
-    throw new Error(t('errBlobUrl', lang));
-  }
-
   // Attempt 1: Fetch with credentials (handles private/session images)
   const controller1 = new AbortController();
   const timeoutId1 = setTimeout(() => controller1.abort(), timeoutMs);
@@ -407,14 +401,16 @@ async function fetchWithTimeoutAndFallback(url, lang = 'en', timeoutMs = 8000) {
     }
     // If not found, fail immediately without useless retry
     if (response.status === 404) {
-      throw new Error(t('errNotFound', lang));
+      const notFoundErr = new Error(t('errNotFound', lang));
+      notFoundErr.isNotFound = true;
+      throw notFoundErr;
     }
     throw new Error(`HTTP ${response.status}`);
   } catch (err) {
     clearTimeout(timeoutId1);
     
-    // If 404, re-throw immediately
-    if (err.message && err.message.includes('404')) {
+    // If explicit 404, re-throw immediately
+    if (err.isNotFound) {
       throw err;
     }
 
@@ -431,13 +427,21 @@ async function fetchWithTimeoutAndFallback(url, lang = 'en', timeoutMs = 8000) {
       
       clearTimeout(timeoutId2);
       
+      if (response.status === 404) {
+        const notFoundErr = new Error(t('errNotFound', lang));
+        notFoundErr.isNotFound = true;
+        throw notFoundErr;
+      }
       if (!response.ok) {
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
       return await response.blob();
     } catch (fallbackErr) {
       clearTimeout(timeoutId2);
-      throw new Error(`CORS / Network Error: ${fallbackErr.message || fallbackErr}`);
+      if (fallbackErr.isNotFound) {
+        throw fallbackErr;
+      }
+      throw new Error(t('errNetwork', lang, { err: fallbackErr.message || String(fallbackErr) }));
     }
   }
 }
@@ -563,28 +567,5 @@ async function closeOffscreenDocument() {
     if (!err.message || !err.message.includes('No current offscreen document')) {
       console.warn('Notice while closing offscreen document:', err);
     }
-  }
-}
-
-/**
- * Utility to display system notifications with optional auto-dismiss timer.
- */
-function showNotification(id, title, message, autoClearMs = 4000) {
-  try {
-    chrome.notifications.create(id, {
-      type: 'basic',
-      iconUrl: 'icon128.png',
-      title: title,
-      message: message,
-      priority: 0
-    }, (createdId) => {
-      if (autoClearMs > 0 && createdId) {
-        setTimeout(() => {
-          chrome.notifications.clear(createdId);
-        }, autoClearMs);
-      }
-    });
-  } catch (err) {
-    console.error('Notification failed to show:', err);
   }
 }

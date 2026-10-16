@@ -9,14 +9,14 @@ export const TRANSLATIONS = {
     appName: "Save as Image",
     savedBadge: "Kaydedildi",
 
-    // Language Selector
+    // Language & Theme Selector
     langTitle: "Dil",
+    themeToggle: "Temayı Değiştir",
 
     // Card Category Tags
     tagQuality: "KALİTE",
     tagColor: "RENK",
     tagDirectory: "KLASÖR",
-    tagPreferences: "BİLDİRİMLER",
 
     // Section: Image Quality
     qualityTitle: "Görsel Kalitesi",
@@ -34,15 +34,6 @@ export const TRANSLATIONS = {
     folderDesc: "İndirilenler klasörünüzün içine isteğe bağlı alt klasör adı:",
     folderPlaceholder: "Örn: Görseller",
 
-    // Section: Desktop Notifications
-    notificationsTitle: "Masaüstü Bildirimleri",
-    notifyStartLabel: "Başlama Bildirimi",
-    notifyStartSub: "Dönüştürme başlarken haber ver",
-    notifySuccessLabel: "Başarı Bildirimi",
-    notifySuccessSub: "Görsel indirildiğinde haber ver",
-    notifyErrorLabel: "Hata Bildirimi",
-    notifyErrorSub: "İndirme başarısız olursa sebebi göster",
-
     // Footer
     btnReset: "Varsayılanlara Sıfırla",
     footerHint: "Görselin üzerine sağ tıklayıp istediğiniz formatta kaydedin veya panoya kopyalayın.",
@@ -54,16 +45,6 @@ export const TRANSLATIONS = {
     menuWebp: "WEBP olarak kaydet",
     menuCopy: "Görseli panoya kopyala",
 
-    // Notifications
-    notifStartTitle: "Görsel Hazırlanıyor",
-    notifStartBody: "Görsel indiriliyor ve dönüştürülüyor...",
-    notifSuccessTitle: "Görsel İndirildi",
-    notifSuccessBody: "{name} başarıyla kaydedildi.",
-    notifCopySuccessTitle: "Panoya Kopyalandı",
-    notifCopySuccessBody: "Görsel panoya başarıyla kopyalandı.",
-    notifErrorTitle: "Dönüştürme Hatası",
-    notifGenericError: "Görsel dönüştürülürken bir hata oluştu.",
-
     // Error Messages
     errNotAnImage: "Sunucu görsel yerine web sayfası döndürdü ({type}). Doğrudan erişim engellenmiş veya CAPTCHA sayfası olabilir.",
     errBlobUrl: "Bu görsel sayfa içi geçici bir bellek nesnesidir (blob URL). Tarayıcı güvenlik kısıtlamaları nedeniyle doğrudan indirilemedi.",
@@ -73,7 +54,11 @@ export const TRANSLATIONS = {
     errOffscreenConnect: "Dönüştürme modülü ile bağlantı kurulamadı. Lütfen eklentiyi yenileyip tekrar deneyin.",
     errOffscreenResponse: "Dönüştürme modülünden yanıt alınamadı.",
     errDimensions: "Görsel boyutları geçersiz veya 0 piksel.",
-    errGraphicEngine: "Görsel grafik motoruna yüklenemedi. Bozuk veya desteklenmeyen bir dosya formatı olabilir."
+    errGraphicEngine: "Görsel grafik motoruna yüklenemedi. Bozuk veya desteklenmeyen bir dosya formatı olabilir.",
+    errTimeout: "Görsel işleme zaman aşımına uğradı (8 saniye).",
+    errCanvasContext: "Canvas 2D grafik bağlamı oluşturulamadı.",
+    errCanvasLimit: "Görsel çok büyük olduğu için dönüştürülemedi (tarayıcı Canvas sınırını aştı).",
+    errNetwork: "Ağ veya erişim hatası: {err}"
   },
 
   en: {
@@ -81,14 +66,14 @@ export const TRANSLATIONS = {
     appName: "Save as Image",
     savedBadge: "Saved",
 
-    // Language Selector
+    // Language & Theme Selector
     langTitle: "Language",
+    themeToggle: "Toggle Theme",
 
     // Card Category Tags
     tagQuality: "QUALITY",
     tagColor: "COLOR",
     tagDirectory: "DIRECTORY",
-    tagPreferences: "PREFERENCES",
 
     // Section: Image Quality
     qualityTitle: "Image Quality",
@@ -106,15 +91,6 @@ export const TRANSLATIONS = {
     folderDesc: "Optional subfolder inside your Downloads directory:",
     folderPlaceholder: "e.g. Images",
 
-    // Section: Desktop Notifications
-    notificationsTitle: "Desktop Notifications",
-    notifyStartLabel: "Start Notification",
-    notifyStartSub: "Notify when conversion starts",
-    notifySuccessLabel: "Success Notification",
-    notifySuccessSub: "Notify when image is downloaded",
-    notifyErrorLabel: "Error Notification",
-    notifyErrorSub: "Show details if download fails",
-
     // Footer
     btnReset: "Reset to Defaults",
     footerHint: "Right-click any web image and save it in your preferred format or copy to clipboard.",
@@ -126,16 +102,6 @@ export const TRANSLATIONS = {
     menuWebp: "Save as WEBP",
     menuCopy: "Copy image to clipboard",
 
-    // Notifications
-    notifStartTitle: "Preparing Image",
-    notifStartBody: "Downloading and converting image...",
-    notifSuccessTitle: "Image Saved",
-    notifSuccessBody: "{name} has been saved successfully.",
-    notifCopySuccessTitle: "Copied to Clipboard",
-    notifCopySuccessBody: "Image has been successfully copied to clipboard.",
-    notifErrorTitle: "Conversion Error",
-    notifGenericError: "An error occurred while converting the image.",
-
     // Error Messages
     errNotAnImage: "Server returned a web page instead of an image ({type}). Direct access may be blocked or protected by CAPTCHA.",
     errBlobUrl: "This image is a temporary page-scoped blob URL and cannot be downloaded directly due to browser security restrictions.",
@@ -145,7 +111,11 @@ export const TRANSLATIONS = {
     errOffscreenConnect: "Could not establish connection with converter module. Please reload the extension.",
     errOffscreenResponse: "No response received from converter module.",
     errDimensions: "Invalid or zero-dimension image.",
-    errGraphicEngine: "Failed to load image into graphics engine. The file may be corrupt or unsupported."
+    errGraphicEngine: "Failed to load image into graphics engine. The file may be corrupt or unsupported.",
+    errTimeout: "Image processing timed out (8 seconds).",
+    errCanvasContext: "Canvas 2D context unavailable.",
+    errCanvasLimit: "Image is too large to convert (exceeded browser Canvas limit).",
+    errNetwork: "Network or access error: {err}"
   }
 };
 
@@ -163,7 +133,10 @@ export function resolveLanguage(pref) {
   
   // Auto-detect from environment
   try {
-    const sysLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+    const uiLang = (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getUILanguage)
+      ? chrome.i18n.getUILanguage()
+      : '';
+    const sysLang = (uiLang || navigator.language || navigator.userLanguage || '').toLowerCase();
     if (sysLang.startsWith('tr')) {
       return 'tr';
     }
@@ -186,7 +159,7 @@ export function t(key, lang = 'en', params = {}) {
   let text = dict[key] || TRANSLATIONS.en[key] || key;
   
   for (const [paramKey, paramVal] of Object.entries(params)) {
-    text = text.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), String(paramVal));
+    text = text.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), () => String(paramVal));
   }
   
   return text;

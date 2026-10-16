@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Save as Image Settings</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -17,18 +14,30 @@
         <img src="icon48.png" alt="Logo" class="logo">
         <div class="brand-text">
           <h1 class="title">Save as Image</h1>
-          <span class="badge">v1.5.0</span>
-          <!-- Saved Confirmation Badge -->
-          <div id="save-status" class="save-status">
-            <svg class="check-icon" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-            </svg>
-            <span data-i18n="savedBadge">Kaydedildi</span>
+          <div class="badge-slot">
+            <span class="badge">v2.0</span>
+            <!-- Saved Confirmation Badge -->
+            <div id="save-status" class="save-status">
+              <svg class="check-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
+              <span data-i18n="savedBadge">Kaydedildi</span>
+            </div>
           </div>
         </div>
       </div>
       
       <div class="header-actions">
+        <!-- Theme Toggle Button (Light / Dark) -->
+        <button type="button" id="theme-toggle" class="theme-toggle" title="Temayı Değiştir" data-i18n-title="themeToggle">
+          <svg class="theme-icon icon-moon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+          </svg>
+          <svg class="theme-icon icon-sun" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
+          </svg>
+        </button>
+
         <!-- Language Switcher (Segmented Control with Animated Slider) -->
         <div class="lang-switch" id="lang-switch" data-active="tr">
           <span class="lang-pill" aria-hidden="true"></span>
@@ -79,14 +88,14 @@
             <span id="jpg-bg-hex" class="hex-text">#FFFFFF</span>
           </div>
           <div class="color-presets">
-            <button type="button" class="preset-btn btn-outlined" data-color="#ffffff" title="Beyaz">
+            <button type="button" class="preset-btn btn-outlined" data-color="#ffffff" title="Beyaz" data-i18n-title="colorWhite">
               <span class="color-dot white"></span>
               <span data-i18n="colorWhite">Beyaz</span>
               <svg class="preset-check" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
               </svg>
             </button>
-            <button type="button" class="preset-btn btn-primary-dark" data-color="#000000" title="Siyah">
+            <button type="button" class="preset-btn btn-primary-dark" data-color="#000000" title="Siyah" data-i18n-title="colorBlack">
               <span class="color-dot black"></span>
               <span data-i18n="colorBlack">Siyah</span>
               <svg class="preset-check" viewBox="0 0 20 20" fill="currentColor">
@@ -110,47 +119,6 @@
           </svg>
           <span class="input-prefix">Downloads/</span>
           <input type="text" id="download-subfolder" placeholder="Örn: Görseller" data-i18n-placeholder="folderPlaceholder" class="text-input" maxlength="40">
-        </div>
-      </section>
-
-      <!-- Section: Notifications -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-tag" data-i18n="tagPreferences">PREFERENCES</div>
-          <h2 class="card-title" data-i18n="notificationsTitle">Masaüstü Bildirimleri</h2>
-        </div>
-
-        <div class="switch-row">
-          <div class="switch-text">
-            <span class="switch-label" data-i18n="notifyStartLabel">Başlama Bildirimi</span>
-            <span class="switch-sub" data-i18n="notifyStartSub">Dönüştürme başlarken haber ver</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="notify-start">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="switch-row">
-          <div class="switch-text">
-            <span class="switch-label" data-i18n="notifySuccessLabel">Başarı Bildirimi</span>
-            <span class="switch-sub" data-i18n="notifySuccessSub">Görsel indirildiğinde haber ver</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="notify-success">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="switch-row">
-          <div class="switch-text">
-            <span class="switch-label" data-i18n="notifyErrorLabel">Hata Bildirimi</span>
-            <span class="switch-sub" data-i18n="notifyErrorSub">İndirme başarısız olursa sebebi göster</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="notify-error">
-            <span class="toggle-slider"></span>
-          </label>
         </div>
       </section>
 

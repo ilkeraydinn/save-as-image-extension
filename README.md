@@ -15,7 +15,7 @@ A Google Chrome extension (Manifest V3) that allows you to convert and save imag
   - Adjust compression quality for JPG and WEBP.
   - Set a background fill color (white, black, or custom) when saving transparent images as JPG.
   - Choose an optional subfolder within your Downloads directory.
-  - Toggle desktop notifications (start, success, error).
+- **Dark & Light Theme:** Automatically adapts to system theme or switches with a single click.
 - **Bilingual Support:** Switch easily between English and Turkish from the popup.
 - **Safe Filenames:** Automatically extracts and cleans filenames from URLs, removing illegal characters and preserving the name.
 - **Manifest V3:** Uses Chrome's Offscreen Document API and Async Clipboard API for lightweight, background-friendly operations.

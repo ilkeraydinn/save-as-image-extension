@@ -1,7 +1,9 @@
-import { getSettings, saveSettings, resetSettings, DEFAULT_SETTINGS } from './settings.js';
+import { getSettings, saveSettings, resetSettings } from './settings.js';
 import { resolveLanguage, t } from './i18n.js';
+import { sanitizeSubfolder } from './helpers.js';
 
 // DOM Element References
+const themeToggleBtn = document.getElementById('theme-toggle');
 const langSwitch = document.getElementById('lang-switch');
 const langButtons = document.querySelectorAll('.lang-btn');
 
@@ -17,16 +19,40 @@ const presetButtons = document.querySelectorAll('.preset-btn');
 
 const downloadSubfolderInput = document.getElementById('download-subfolder');
 
-const notifyStartInput = document.getElementById('notify-start');
-const notifySuccessInput = document.getElementById('notify-success');
-const notifyErrorInput = document.getElementById('notify-error');
-
 const btnReset = document.getElementById('btn-reset');
 const saveStatus = document.getElementById('save-status');
 
+let storedLangPref = 'auto';
 let currentLang = 'en';
+let storedThemePref = 'auto';
+let currentTheme = 'light';
 let saveTimeout = null;
 let statusTimeout = null;
+
+/**
+ * Resolves the effective theme ('light' or 'dark') given user preference.
+ *
+ * @param {string} [pref] - 'auto', 'light', or 'dark'
+ * @returns {'light' | 'dark'}
+ */
+function resolveTheme(pref) {
+  if (pref === 'dark' || pref === 'light') {
+    return pref;
+  }
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+/**
+ * Applies the active theme to the root HTML element.
+ *
+ * @param {'light' | 'dark'} theme
+ */
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+}
 
 /**
  * Initializes the popup by reading saved settings, applying language, and binding events.
@@ -36,13 +62,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
 });
 
-// Flush any pending save immediately when popup is about to close
-window.addEventListener('pagehide', () => {
+// Flush any pending save immediately when popup loses visibility or is about to close
+function flushPendingSave() {
   if (saveTimeout) {
     clearTimeout(saveTimeout);
-    saveCurrentSettingsSync();
+    saveTimeout = null;
+    saveSettings(getCurrentSettingsFromDOM());
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushPendingSave();
   }
 });
+window.addEventListener('pagehide', flushPendingSave);
 
 /**
  * Applies translations to all tagged DOM elements.
@@ -50,6 +83,8 @@ window.addEventListener('pagehide', () => {
  * @param {'tr' | 'en'} lang
  */
 function applyTranslations(lang) {
+  document.documentElement.lang = lang;
+
   // Translate text content
   const i18nElements = document.querySelectorAll('[data-i18n]');
   i18nElements.forEach(el => {
@@ -65,6 +100,15 @@ function applyTranslations(lang) {
     const key = el.getAttribute('data-i18n-placeholder');
     if (key) {
       el.placeholder = t(key, lang);
+    }
+  });
+
+  // Translate title tooltips
+  const titleElements = document.querySelectorAll('[data-i18n-title]');
+  titleElements.forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) {
+      el.title = t(key, lang);
     }
   });
 
@@ -89,9 +133,15 @@ function applyTranslations(lang) {
 async function loadAndDisplaySettings() {
   const settings = await getSettings();
   
-  // Resolve and apply language
-  currentLang = resolveLanguage(settings.language);
+  // Preserve stored language preference ('auto', 'tr', or 'en') while resolving active UI language
+  storedLangPref = settings.language || 'auto';
+  currentLang = resolveLanguage(storedLangPref);
   applyTranslations(currentLang);
+
+  // Preserve stored theme preference ('auto', 'light', or 'dark') while resolving active UI theme
+  storedThemePref = settings.theme || 'auto';
+  currentTheme = resolveTheme(storedThemePref);
+  applyTheme(currentTheme);
 
   // Sliders
   qualityJpgInput.value = settings.qualityJpg;
@@ -107,11 +157,6 @@ async function loadAndDisplaySettings() {
 
   // Subfolder
   downloadSubfolderInput.value = settings.downloadSubfolder || '';
-
-  // Notification toggles
-  notifyStartInput.checked = Boolean(settings.showStartNotification);
-  notifySuccessInput.checked = Boolean(settings.showSuccessNotification);
-  notifyErrorInput.checked = Boolean(settings.showErrorNotification);
 }
 
 /**
@@ -135,21 +180,15 @@ function updateActivePreset(activeColor) {
  * Reads values from DOM and returns a clean settings object.
  */
 function getCurrentSettingsFromDOM() {
-  const cleanSubfolder = downloadSubfolderInput.value
-    .trim()
-    .replace(/\.\.+/g, '')
-    .replace(/[<>:"|?*\\]/g, '')
-    .replace(/^\/+|\/+$/g, '');
+  const cleanSubfolder = sanitizeSubfolder(downloadSubfolderInput.value);
 
   return {
-    language: currentLang,
+    language: storedLangPref,
+    theme: storedThemePref,
     qualityJpg: parseInt(qualityJpgInput.value, 10) || 95,
     qualityWebp: parseInt(qualityWebpInput.value, 10) || 95,
     jpgBgColor: jpgBgColorInput.value.toLowerCase(),
-    downloadSubfolder: cleanSubfolder,
-    showStartNotification: notifyStartInput.checked,
-    showSuccessNotification: notifySuccessInput.checked,
-    showErrorNotification: notifyErrorInput.checked
+    downloadSubfolder: cleanSubfolder
   };
 }
 
@@ -157,6 +196,7 @@ function getCurrentSettingsFromDOM() {
  * Immediately saves the current settings and shows confirmation.
  */
 async function saveCurrentSettingsSync() {
+  saveTimeout = null;
   const settings = getCurrentSettingsFromDOM();
   const success = await saveSettings(settings);
   if (success) {
@@ -165,14 +205,26 @@ async function saveCurrentSettingsSync() {
 }
 
 /**
- * Binds UI interactions with instant saves for toggles/presets and debounced saves for sliders/text.
+ * Binds UI interactions with instant saves for presets and debounced saves for sliders/text.
  */
 function bindEvents() {
+  // Theme Toggle Button
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', async () => {
+      currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      storedThemePref = currentTheme;
+      applyTheme(currentTheme);
+      clearTimeout(saveTimeout);
+      await saveCurrentSettingsSync();
+    });
+  }
+
   // Language Switcher
   langButtons.forEach(btn => {
     btn.addEventListener('click', async () => {
       const selectedLang = btn.getAttribute('data-lang');
-      if (selectedLang && selectedLang !== currentLang) {
+      if (selectedLang && (selectedLang !== currentLang || storedLangPref === 'auto')) {
+        storedLangPref = selectedLang;
         currentLang = selectedLang;
         applyTranslations(currentLang);
         clearTimeout(saveTimeout);
@@ -227,34 +279,32 @@ function bindEvents() {
     });
   });
 
-  // Download Subfolder
+  // Download Subfolder (Preserve cursor position while stripping forbidden characters)
   downloadSubfolderInput.addEventListener('input', () => {
-    downloadSubfolderInput.value = downloadSubfolderInput.value
+    const rawVal = downloadSubfolderInput.value;
+    const cleanedVal = rawVal
       .replace(/\.\.+/g, '')
-      .replace(/[<>:"|?*\\]/g, '');
+      .replace(/[<>:"|?*\\\x00-\x1F]/g, '');
+
+    if (cleanedVal !== rawVal) {
+      const cursorPos = downloadSubfolderInput.selectionStart || 0;
+      const diff = rawVal.length - cleanedVal.length;
+      downloadSubfolderInput.value = cleanedVal;
+      const newPos = Math.max(0, cursorPos - diff);
+      downloadSubfolderInput.setSelectionRange(newPos, newPos);
+    }
     triggerDebouncedSave();
   });
   downloadSubfolderInput.addEventListener('change', () => {
-    clearTimeout(saveTimeout);
-    saveCurrentSettingsSync();
-  });
-
-  // Notifications (Instant Save on Toggle)
-  notifyStartInput.addEventListener('change', () => {
-    clearTimeout(saveTimeout);
-    saveCurrentSettingsSync();
-  });
-  notifySuccessInput.addEventListener('change', () => {
-    clearTimeout(saveTimeout);
-    saveCurrentSettingsSync();
-  });
-  notifyErrorInput.addEventListener('change', () => {
+    downloadSubfolderInput.value = sanitizeSubfolder(downloadSubfolderInput.value);
     clearTimeout(saveTimeout);
     saveCurrentSettingsSync();
   });
 
   // Reset to Defaults
   btnReset.addEventListener('click', async () => {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
     await resetSettings();
     await loadAndDisplaySettings();
     showSavedBadge();
@@ -268,7 +318,7 @@ function triggerDebouncedSave() {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
     await saveCurrentSettingsSync();
-  }, 200);
+  }, 150);
 }
 
 /**

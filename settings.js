@@ -5,6 +5,9 @@ export const DEFAULT_SETTINGS = {
   // Language preference: 'auto', 'tr', or 'en'
   language: 'auto',
 
+  // Theme preference: 'auto', 'light', or 'dark'
+  theme: 'auto',
+
   // Quality options (50 to 100)
   qualityJpg: 95,
   qualityWebp: 95,
@@ -12,38 +15,56 @@ export const DEFAULT_SETTINGS = {
   // Background fill color when saving transparent images as JPG
   jpgBgColor: '#ffffff',
   
-  // Notification toggles
-  showStartNotification: true,
-  showSuccessNotification: true,
-  showErrorNotification: true,
-  
   // Optional subfolder inside Downloads directory (e.g. "SaveAsImage")
   downloadSubfolder: ''
 };
 
+// In-memory cache to avoid redundant storage I/O on every right-click action
+let cachedSettings = null;
+
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener(() => {
+    cachedSettings = null;
+  });
+}
+
 /**
  * Retrieves the current settings merged with default values.
- * Uses chrome.storage.sync with fallback to chrome.storage.local.
+ * Uses in-memory cache and parallel reads from chrome.storage.sync and chrome.storage.local.
  * 
  * @returns {Promise<typeof DEFAULT_SETTINGS>}
  */
 export async function getSettings() {
-  try {
-    if (chrome.storage && chrome.storage.sync) {
-      try {
-        const result = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-        return { ...DEFAULT_SETTINGS, ...result };
-      } catch (syncErr) {
-        console.warn('storage.sync read failed, checking storage.local:', syncErr);
-      }
-    }
-    
-    if (chrome.storage && chrome.storage.local) {
-      const localResult = await chrome.storage.local.get(DEFAULT_SETTINGS);
-      return { ...DEFAULT_SETTINGS, ...localResult };
-    }
+  if (cachedSettings) {
+    return { ...cachedSettings };
+  }
 
-    return { ...DEFAULT_SETTINGS };
+  try {
+    const readLocal = (chrome.storage && chrome.storage.local)
+      ? chrome.storage.local.get(null).catch(err => {
+          console.warn('storage.local read failed:', err);
+          return {};
+        })
+      : Promise.resolve({});
+
+    const readSync = (chrome.storage && chrome.storage.sync)
+      ? chrome.storage.sync.get(null).catch(err => {
+          console.warn('storage.sync read failed, using storage.local:', err);
+          return {};
+        })
+      : Promise.resolve({});
+
+    const [localRaw, syncRaw] = await Promise.all([readLocal, readSync]);
+    const localData = localRaw || {};
+    const syncData = syncRaw || {};
+    const { _preferLocal, ...cleanLocal } = localData;
+
+    // If last save failed on sync, prefer localData; otherwise prefer syncData (for cross-device sync)
+    cachedSettings = _preferLocal
+      ? { ...DEFAULT_SETTINGS, ...syncData, ...cleanLocal }
+      : { ...DEFAULT_SETTINGS, ...cleanLocal, ...syncData };
+
+    return { ...cachedSettings };
   } catch (error) {
     console.warn('Failed to load settings from storage, using defaults:', error);
     return { ...DEFAULT_SETTINGS };
@@ -59,12 +80,13 @@ export async function getSettings() {
  */
 export async function saveSettings(settings) {
   try {
-    let saved = false;
+    let syncSaved = false;
+    let localSaved = false;
 
     if (chrome.storage && chrome.storage.sync) {
       try {
         await chrome.storage.sync.set(settings);
-        saved = true;
+        syncSaved = true;
       } catch (syncErr) {
         console.warn('chrome.storage.sync write failed:', syncErr);
       }
@@ -72,14 +94,21 @@ export async function saveSettings(settings) {
 
     if (chrome.storage && chrome.storage.local) {
       try {
-        await chrome.storage.local.set(settings);
-        saved = true;
+        await chrome.storage.local.set({
+          ...settings,
+          _preferLocal: !syncSaved
+        });
+        localSaved = true;
       } catch (localErr) {
         console.warn('chrome.storage.local write failed:', localErr);
       }
     }
 
-    return saved;
+    if (syncSaved || localSaved) {
+      cachedSettings = { ...(cachedSettings || DEFAULT_SETTINGS), ...settings };
+    }
+
+    return syncSaved || localSaved;
   } catch (error) {
     console.error('Failed to save settings:', error);
     return false;
@@ -87,22 +116,12 @@ export async function saveSettings(settings) {
 }
 
 /**
- * Resets all settings back to default values.
+ * Resets all settings back to default values without triggering redundant clear events.
  * 
  * @returns {Promise<boolean>}
  */
 export async function resetSettings() {
   try {
-    if (chrome.storage && chrome.storage.sync) {
-      try {
-        await chrome.storage.sync.clear();
-      } catch (e) { /* ignore */ }
-    }
-    if (chrome.storage && chrome.storage.local) {
-      try {
-        await chrome.storage.local.clear();
-      } catch (e) { /* ignore */ }
-    }
     return await saveSettings(DEFAULT_SETTINGS);
   } catch (error) {
     console.error('Failed to reset settings:', error);
