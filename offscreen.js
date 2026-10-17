@@ -1,13 +1,54 @@
 import { t } from './i18n.js';
 
+// Concurrency queue: limits simultaneous heavy canvas conversions to prevent memory spikes
+const MAX_CONCURRENT_CONVERSIONS = 2;
+let activeConversions = 0;
+const conversionQueue = [];
+
+/**
+ * Enqueues a conversion task so at most MAX_CONCURRENT_CONVERSIONS run in parallel.
+ * Timeout timers inside the task only start when the task is dequeued and begins running.
+ *
+ * @template T
+ * @param {() => Promise<T>} taskFn
+ * @returns {Promise<T>}
+ */
+function enqueueConversion(taskFn) {
+  return new Promise((resolve, reject) => {
+    const run = async () => {
+      activeConversions++;
+      try {
+        const result = await taskFn();
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      } finally {
+        activeConversions--;
+        if (conversionQueue.length > 0) {
+          const nextTask = conversionQueue.shift();
+          nextTask();
+        }
+      }
+    };
+
+    if (activeConversions < MAX_CONCURRENT_CONVERSIONS) {
+      run();
+    } else {
+      conversionQueue.push(run);
+    }
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'convert-image') {
-    convertImage(message.sourceDataUrl, message.format, {
-      quality: message.quality,
-      backgroundColor: message.backgroundColor,
-      returnType: message.returnType || 'dataUrl',
-      lang: message.lang || 'en'
-    })
+    enqueueConversion(() =>
+      convertImage(message.sourceDataUrl, message.format, {
+        quality: message.quality,
+        backgroundColor: message.backgroundColor,
+        returnType: message.returnType || 'dataUrl',
+        lang: message.lang || 'en'
+      })
+    )
       .then(resultUrl => {
         sendResponse({ success: true, dataUrl: resultUrl });
       })
@@ -44,8 +85,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /**
- * Converts an image into the target format via Canvas using async canvas.toBlob().
- * Returns either a lightweight Object URL ('blobUrl') for downloads or a Data URL ('dataUrl') for clipboard.
+ * Converts an image into the target format.
+ * Uses hardware-accelerated createImageBitmap + OffscreenCanvas for raster images,
+ * and automatically falls back to DOM Image + HTMLCanvasElement for SVGs or unsupported streams.
  * 
  * @param {string} sourceDataUrl - The Data URL of the source image.
  * @param {string} format - Target format ('jpeg', 'png', 'webp').
@@ -57,12 +99,118 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * @returns {Promise<string>} The converted Blob URL or Data URL.
  */
 async function convertImage(sourceDataUrl, format, options = {}) {
+  const isSvg = /^data:image\/svg\+xml[;,]/i.test(sourceDataUrl);
+  const canUseOffscreenCanvas =
+    !isSvg &&
+    typeof createImageBitmap === 'function' &&
+    typeof OffscreenCanvas !== 'undefined';
+
+  if (canUseOffscreenCanvas) {
+    try {
+      return await convertWithBitmap(sourceDataUrl, format, options);
+    } catch (bitmapErr) {
+      if (bitmapErr && bitmapErr.isTimeout) {
+        throw bitmapErr;
+      }
+      // Fallback to DOM <img> + <canvas> if createImageBitmap fails (e.g. disguised SVG)
+      console.warn('OffscreenCanvas path failed, falling back to DOM Canvas:', bitmapErr);
+    }
+  }
+
+  return await convertWithDomImage(sourceDataUrl, format, options);
+}
+
+/**
+ * Fast-path conversion using createImageBitmap() + OffscreenCanvas.convertToBlob().
+ * Decodes off the main thread and releases GPU/RAM immediately via bitmap.close().
+ */
+async function convertWithBitmap(sourceDataUrl, format, options = {}) {
+  const lang = options.lang || 'en';
+  const returnType = options.returnType || 'dataUrl';
+
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(t('errTimeout', lang));
+      err.isTimeout = true;
+      reject(err);
+    }, 8000);
+  });
+
+  const workPromise = (async () => {
+    const response = await fetch(sourceDataUrl);
+    const sourceBlob = await response.blob();
+
+    // SVGs cannot be decoded by createImageBitmap in Chromium; trigger fallback
+    if (sourceBlob.type === 'image/svg+xml') {
+      throw new Error('SVG requires DOM Image renderer');
+    }
+
+    let bitmap = await createImageBitmap(sourceBlob);
+    try {
+      const width = bitmap.width;
+      const height = bitmap.height;
+
+      if (!width || !height) {
+        throw new Error(t('errDimensions', lang));
+      }
+
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error(t('errCanvasContext', lang));
+      }
+
+      if (format === 'jpeg') {
+        ctx.fillStyle = options.backgroundColor || '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+      }
+
+      ctx.drawImage(bitmap, 0, 0, width, height);
+
+      // Immediately release decoded bitmap memory before encoding output blob
+      bitmap.close();
+      bitmap = null;
+
+      let qualityParam = undefined;
+      if (format === 'jpeg' || format === 'webp') {
+        qualityParam = typeof options.quality === 'number' ? options.quality : 0.95;
+      }
+
+      const mimeType = `image/${format}`;
+      const outputBlob = await canvas.convertToBlob({
+        type: mimeType,
+        quality: qualityParam
+      });
+
+      canvas.width = 0;
+      canvas.height = 0;
+
+      return await formatOutputBlob(outputBlob, returnType, lang);
+    } finally {
+      if (bitmap) {
+        try { bitmap.close(); } catch (e) { /* ignore */ }
+      }
+    }
+  })();
+
+  try {
+    return await Promise.race([workPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Fallback conversion using DOM <img> + HTMLCanvasElement (used for SVGs and fallback cases).
+ */
+function convertWithDomImage(sourceDataUrl, format, options = {}) {
   const lang = options.lang || 'en';
   const returnType = options.returnType || 'dataUrl';
 
   return new Promise((resolve, reject) => {
     const img = new Image();
-    
+
     // Set a safety timeout of 8 seconds to prevent hanging
     const timeoutId = setTimeout(() => {
       cleanup();
@@ -78,7 +226,7 @@ async function convertImage(sourceDataUrl, format, options = {}) {
         // ignore
       }
     }
-    
+
     img.onload = () => {
       try {
         let width = img.naturalWidth || img.width;
@@ -101,24 +249,24 @@ async function convertImage(sourceDataUrl, format, options = {}) {
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        
+
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           clearTimeout(timeoutId);
           cleanup();
           throw new Error(t('errCanvasContext', lang));
         }
-        
+
         // Transparent background fill for JPG conversions
         if (format === 'jpeg') {
           ctx.fillStyle = options.backgroundColor || '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
-        
+
         // Draw image onto canvas
         ctx.drawImage(img, 0, 0, width, height);
         cleanup();
-        
+
         // Determine quality parameter
         let qualityParam = undefined;
         if (format === 'jpeg' || format === 'webp') {
@@ -133,26 +281,7 @@ async function convertImage(sourceDataUrl, format, options = {}) {
           canvas.width = 0;
           canvas.height = 0;
 
-          if (!blob || blob.size === 0) {
-            reject(new Error(t('errCanvasLimit', lang)));
-            return;
-          }
-
-          // Use Object URL only when asked AND when blob is large (>= 15MB) to avoid 64MB IPC limit,
-          // otherwise return a self-contained Data URL so Chrome's "Save As" dialog never loses the blob if kept open
-          const LARGE_BLOB_THRESHOLD = 15 * 1024 * 1024;
-          if (returnType === 'blobUrl' && blob.size >= LARGE_BLOB_THRESHOLD) {
-            const blobUrl = URL.createObjectURL(blob);
-            setTimeout(() => {
-              try { URL.revokeObjectURL(blobUrl); } catch (e) { /* ignore */ }
-            }, 300000); // 5 minutes safety window for Save-As dialog
-            resolve(blobUrl);
-          } else {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error(t('errCanvasLimit', lang)));
-            reader.readAsDataURL(blob);
-          }
+          formatOutputBlob(blob, returnType, lang).then(resolve, reject);
         }, mimeType, qualityParam);
       } catch (err) {
         clearTimeout(timeoutId);
@@ -160,14 +289,46 @@ async function convertImage(sourceDataUrl, format, options = {}) {
         reject(err);
       }
     };
-    
+
     img.onerror = () => {
       clearTimeout(timeoutId);
       cleanup();
       reject(new Error(t('errGraphicEngine', lang)));
     };
-    
+
     img.src = sourceDataUrl;
+  });
+}
+
+/**
+ * Formats the encoded output Blob into either a self-contained Data URL (< 15MB)
+ * or a temporary Object URL (>= 15MB, avoiding Chrome's 64MB IPC message limit).
+ *
+ * @param {Blob | null} blob
+ * @param {'blobUrl' | 'dataUrl'} returnType
+ * @param {string} lang
+ * @returns {Promise<string>}
+ */
+function formatOutputBlob(blob, returnType, lang) {
+  return new Promise((resolve, reject) => {
+    if (!blob || blob.size === 0) {
+      reject(new Error(t('errCanvasLimit', lang)));
+      return;
+    }
+
+    const LARGE_BLOB_THRESHOLD = 15 * 1024 * 1024;
+    if (returnType === 'blobUrl' && blob.size >= LARGE_BLOB_THRESHOLD) {
+      const blobUrl = URL.createObjectURL(blob);
+      setTimeout(() => {
+        try { URL.revokeObjectURL(blobUrl); } catch (e) { /* ignore */ }
+      }, 300000); // 5 minutes safety window for Save-As dialog
+      resolve(blobUrl);
+    } else {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error(t('errCanvasLimit', lang)));
+      reader.readAsDataURL(blob);
+    }
   });
 }
 
