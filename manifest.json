@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Save as Image",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Convert and save any web image as JPG, PNG, or WEBP with a single click, or copy it directly to your clipboard.",
   "permissions": [
     "contextMenus",
@@ -9,7 +9,8 @@
     "offscreen",
     "storage",
     "clipboardWrite",
-    "scripting"
+    "scripting",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "<all_urls>"

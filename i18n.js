@@ -45,7 +45,8 @@ export const TRANSLATIONS = {
     menuWebp: "WEBP olarak kaydet",
     menuCopy: "Görseli panoya kopyala",
 
-    // Error Messages
+    // Feedback & Error Messages
+    msgCopySuccess: "Görsel panoya kopyalandı.",
     errNotAnImage: "Sunucu görsel yerine web sayfası döndürdü ({type}). Doğrudan erişim engellenmiş veya CAPTCHA sayfası olabilir.",
     errBlobUrl: "Bu görsel sayfa içi geçici bir bellek nesnesidir (blob URL). Tarayıcı güvenlik kısıtlamaları nedeniyle doğrudan indirilemedi.",
     errDataUrl: "Data URL okunamadı: {err}",
@@ -55,7 +56,7 @@ export const TRANSLATIONS = {
     errOffscreenResponse: "Dönüştürme modülünden yanıt alınamadı.",
     errDimensions: "Görsel boyutları geçersiz veya 0 piksel.",
     errGraphicEngine: "Görsel grafik motoruna yüklenemedi. Bozuk veya desteklenmeyen bir dosya formatı olabilir.",
-    errTimeout: "Görsel işleme zaman aşımına uğradı (8 saniye).",
+    errTimeout: "Görsel işleme zaman aşımına uğradı (15 saniye).",
     errCanvasContext: "Canvas 2D grafik bağlamı oluşturulamadı.",
     errCanvasLimit: "Görsel çok büyük olduğu için dönüştürülemedi (tarayıcı Canvas sınırını aştı).",
     errNetwork: "Ağ veya erişim hatası: {err}"
@@ -102,7 +103,8 @@ export const TRANSLATIONS = {
     menuWebp: "Save as WEBP",
     menuCopy: "Copy image to clipboard",
 
-    // Error Messages
+    // Feedback & Error Messages
+    msgCopySuccess: "Image copied to clipboard.",
     errNotAnImage: "Server returned a web page instead of an image ({type}). Direct access may be blocked or protected by CAPTCHA.",
     errBlobUrl: "This image is a temporary page-scoped blob URL and cannot be downloaded directly due to browser security restrictions.",
     errDataUrl: "Failed to read Data URL: {err}",
@@ -112,7 +114,7 @@ export const TRANSLATIONS = {
     errOffscreenResponse: "No response received from converter module.",
     errDimensions: "Invalid or zero-dimension image.",
     errGraphicEngine: "Failed to load image into graphics engine. The file may be corrupt or unsupported.",
-    errTimeout: "Image processing timed out (8 seconds).",
+    errTimeout: "Image processing timed out (15 seconds).",
     errCanvasContext: "Canvas 2D context unavailable.",
     errCanvasLimit: "Image is too large to convert (exceeded browser Canvas limit).",
     errNetwork: "Network or access error: {err}"

@@ -1,6 +1,6 @@
 import { getSettings, saveSettings, resetSettings } from './settings.js';
 import { resolveLanguage, t } from './i18n.js';
-import { sanitizeSubfolder } from './helpers.js';
+import { sanitizeSubfolder, sanitizeHexColor } from './helpers.js';
 
 // DOM Element References
 const themeToggleBtn = document.getElementById('theme-toggle');
@@ -46,12 +46,31 @@ function resolveTheme(pref) {
 }
 
 /**
- * Applies the active theme to the root HTML element.
+ * Applies the active theme and theme preference attributes to the root HTML element.
  *
  * @param {'light' | 'dark'} theme
+ * @param {'auto' | 'light' | 'dark'} [pref='auto']
  */
-function applyTheme(theme) {
+function applyTheme(theme, pref = storedThemePref) {
   document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-theme-pref', pref);
+  if (themeToggleBtn) {
+    const modeLabel = pref === 'auto' ? 'Auto' : pref === 'dark' ? 'Dark' : 'Light';
+    themeToggleBtn.title = `${t('themeToggle', currentLang)} (${modeLabel})`;
+  }
+}
+
+// Listen for OS theme changes while in 'auto' mode (B10)
+if (window.matchMedia) {
+  const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  if (typeof darkMediaQuery.addEventListener === 'function') {
+    darkMediaQuery.addEventListener('change', () => {
+      if (storedThemePref === 'auto') {
+        currentTheme = resolveTheme('auto');
+        applyTheme(currentTheme, 'auto');
+      }
+    });
+  }
 }
 
 /**
@@ -59,6 +78,7 @@ function applyTheme(theme) {
  */
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAndDisplaySettings();
+  document.documentElement.setAttribute('data-ready', 'true');
   bindEvents();
 });
 
@@ -79,7 +99,7 @@ window.addEventListener('pagehide', flushPendingSave);
 
 /**
  * Applies translations to all tagged DOM elements.
- * 
+ *
  * @param {'tr' | 'en'} lang
  */
 function applyTranslations(lang) {
@@ -87,7 +107,7 @@ function applyTranslations(lang) {
 
   // Translate text content
   const i18nElements = document.querySelectorAll('[data-i18n]');
-  i18nElements.forEach(el => {
+  i18nElements.forEach((el) => {
     const key = el.getAttribute('data-i18n');
     if (key) {
       el.textContent = t(key, lang);
@@ -96,7 +116,7 @@ function applyTranslations(lang) {
 
   // Translate placeholders
   const placeholderElements = document.querySelectorAll('[data-i18n-placeholder]');
-  placeholderElements.forEach(el => {
+  placeholderElements.forEach((el) => {
     const key = el.getAttribute('data-i18n-placeholder');
     if (key) {
       el.placeholder = t(key, lang);
@@ -105,12 +125,17 @@ function applyTranslations(lang) {
 
   // Translate title tooltips
   const titleElements = document.querySelectorAll('[data-i18n-title]');
-  titleElements.forEach(el => {
+  titleElements.forEach((el) => {
     const key = el.getAttribute('data-i18n-title');
     if (key) {
       el.title = t(key, lang);
     }
   });
+
+  if (themeToggleBtn) {
+    const modeLabel = storedThemePref === 'auto' ? 'Auto' : storedThemePref === 'dark' ? 'Dark' : 'Light';
+    themeToggleBtn.title = `${t('themeToggle', lang)} (${modeLabel})`;
+  }
 
   // Update data-active attribute on container for sliding animation
   if (langSwitch) {
@@ -118,7 +143,7 @@ function applyTranslations(lang) {
   }
 
   // Update active button state in language switcher
-  langButtons.forEach(btn => {
+  langButtons.forEach((btn) => {
     if (btn.getAttribute('data-lang') === lang) {
       btn.classList.add('active');
     } else {
@@ -132,28 +157,30 @@ function applyTranslations(lang) {
  */
 async function loadAndDisplaySettings() {
   const settings = await getSettings();
-  
+
   // Preserve stored language preference ('auto', 'tr', or 'en') while resolving active UI language
   storedLangPref = settings.language || 'auto';
   currentLang = resolveLanguage(storedLangPref);
-  applyTranslations(currentLang);
 
   // Preserve stored theme preference ('auto', 'light', or 'dark') while resolving active UI theme
   storedThemePref = settings.theme || 'auto';
   currentTheme = resolveTheme(storedThemePref);
-  applyTheme(currentTheme);
+
+  applyTranslations(currentLang);
+  applyTheme(currentTheme, storedThemePref);
 
   // Sliders
   qualityJpgInput.value = settings.qualityJpg;
   qualityJpgVal.textContent = `%${settings.qualityJpg}`;
-  
+
   qualityWebpInput.value = settings.qualityWebp;
   qualityWebpVal.textContent = `%${settings.qualityWebp}`;
 
-  // Color picker
-  jpgBgColorInput.value = settings.jpgBgColor;
-  jpgBgHex.textContent = settings.jpgBgColor.toUpperCase();
-  updateActivePreset(settings.jpgBgColor);
+  // Color picker (validated via sanitizeHexColor)
+  const validColor = sanitizeHexColor(settings.jpgBgColor, '#ffffff');
+  jpgBgColorInput.value = validColor;
+  jpgBgHex.textContent = validColor.toUpperCase();
+  updateActivePreset(validColor);
 
   // Subfolder
   downloadSubfolderInput.value = settings.downloadSubfolder || '';
@@ -161,12 +188,12 @@ async function loadAndDisplaySettings() {
 
 /**
  * Updates the active ring and checkmark on preset color buttons.
- * 
+ *
  * @param {string} activeColor
  */
 function updateActivePreset(activeColor) {
   const normalized = (activeColor || '').toLowerCase().trim();
-  presetButtons.forEach(btn => {
+  presetButtons.forEach((btn) => {
     const btnColor = (btn.getAttribute('data-color') || '').toLowerCase().trim();
     if (btnColor === normalized) {
       btn.classList.add('active');
@@ -187,7 +214,7 @@ function getCurrentSettingsFromDOM() {
     theme: storedThemePref,
     qualityJpg: parseInt(qualityJpgInput.value, 10) || 95,
     qualityWebp: parseInt(qualityWebpInput.value, 10) || 95,
-    jpgBgColor: jpgBgColorInput.value.toLowerCase(),
+    jpgBgColor: sanitizeHexColor(jpgBgColorInput.value, '#ffffff'),
     downloadSubfolder: cleanSubfolder
   };
 }
@@ -205,22 +232,31 @@ async function saveCurrentSettingsSync() {
 }
 
 /**
- * Binds UI interactions with instant saves for presets and debounced saves for sliders/text.
+ * Binds UI interactions:
+ * - Sliders and color picker update UI on 'input' and persist on 'change' (P3 quota protection).
+ * - Subfolder input converts '\' to '/' and debounces saves at 500ms.
+ * - Theme toggle cycles through auto -> light -> dark -> auto.
  */
 function bindEvents() {
-  // Theme Toggle Button
+  // 3-State Theme Toggle Button: auto -> light -> dark -> auto (B10)
   if (themeToggleBtn) {
     themeToggleBtn.addEventListener('click', async () => {
-      currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-      storedThemePref = currentTheme;
-      applyTheme(currentTheme);
+      if (storedThemePref === 'auto') {
+        storedThemePref = 'light';
+      } else if (storedThemePref === 'light') {
+        storedThemePref = 'dark';
+      } else {
+        storedThemePref = 'auto';
+      }
+      currentTheme = resolveTheme(storedThemePref);
+      applyTheme(currentTheme, storedThemePref);
       clearTimeout(saveTimeout);
       await saveCurrentSettingsSync();
     });
   }
 
   // Language Switcher
-  langButtons.forEach(btn => {
+  langButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
       const selectedLang = btn.getAttribute('data-lang');
       if (selectedLang && (selectedLang !== currentLang || storedLangPref === 'auto')) {
@@ -233,31 +269,28 @@ function bindEvents() {
     });
   });
 
-  // JPG Slider: Live label on input, save on release / debounce
+  // JPG Slider: Live label on input, save only on release (change) to protect storage.sync quota (P3)
   qualityJpgInput.addEventListener('input', () => {
     qualityJpgVal.textContent = `%${qualityJpgInput.value}`;
-    triggerDebouncedSave();
   });
   qualityJpgInput.addEventListener('change', () => {
     clearTimeout(saveTimeout);
     saveCurrentSettingsSync();
   });
 
-  // WEBP Slider: Live label on input, save on release / debounce
+  // WEBP Slider: Live label on input, save only on release (change) to protect storage.sync quota (P3)
   qualityWebpInput.addEventListener('input', () => {
     qualityWebpVal.textContent = `%${qualityWebpInput.value}`;
-    triggerDebouncedSave();
   });
   qualityWebpInput.addEventListener('change', () => {
     clearTimeout(saveTimeout);
     saveCurrentSettingsSync();
   });
 
-  // Color Picker
+  // Color Picker: Live label/preset on input, save on change (P3)
   jpgBgColorInput.addEventListener('input', () => {
     jpgBgHex.textContent = jpgBgColorInput.value.toUpperCase();
     updateActivePreset(jpgBgColorInput.value);
-    triggerDebouncedSave();
   });
   jpgBgColorInput.addEventListener('change', () => {
     updateActivePreset(jpgBgColorInput.value);
@@ -266,7 +299,7 @@ function bindEvents() {
   });
 
   // Color Presets (Instant Save)
-  presetButtons.forEach(btn => {
+  presetButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const color = btn.getAttribute('data-color');
       if (color) {
@@ -279,12 +312,13 @@ function bindEvents() {
     });
   });
 
-  // Download Subfolder (Preserve cursor position while stripping forbidden characters)
+  // Download Subfolder: convert '\' to '/' to match sanitizeSubfolder (B10) and debounce at 500ms (P3)
   downloadSubfolderInput.addEventListener('input', () => {
     const rawVal = downloadSubfolderInput.value;
     const cleanedVal = rawVal
+      .replace(/\\/g, '/')
       .replace(/\.\.+/g, '')
-      .replace(/[<>:"|?*\\\x00-\x1F]/g, '');
+      .replace(/[<>:"|?*\x00-\x1F]/g, '');
 
     if (cleanedVal !== rawVal) {
       const cursorPos = downloadSubfolderInput.selectionStart || 0;
@@ -293,7 +327,7 @@ function bindEvents() {
       const newPos = Math.max(0, cursorPos - diff);
       downloadSubfolderInput.setSelectionRange(newPos, newPos);
     }
-    triggerDebouncedSave();
+    triggerDebouncedSave(500);
   });
   downloadSubfolderInput.addEventListener('change', () => {
     downloadSubfolderInput.value = sanitizeSubfolder(downloadSubfolderInput.value);
@@ -312,17 +346,19 @@ function bindEvents() {
 }
 
 /**
- * Debounced save for high-frequency events like dragging sliders or typing.
+ * Debounced save for text input.
+ *
+ * @param {number} [delayMs=500]
  */
-function triggerDebouncedSave() {
+function triggerDebouncedSave(delayMs = 500) {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
     await saveCurrentSettingsSync();
-  }, 150);
+  }, delayMs);
 }
 
 /**
- * Shows the "Kaydedildi" status badge temporarily.
+ * Shows the "Kaydedildi" / "Saved" status badge temporarily.
  */
 function showSavedBadge() {
   saveStatus.classList.add('visible');

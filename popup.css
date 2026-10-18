@@ -80,6 +80,11 @@ body {
   flex-direction: column;
   padding: 16px;
   gap: 12px;
+  visibility: hidden;
+}
+
+:root[data-ready="true"] .popup-container {
+  visibility: visible;
 }
 
 /* Header */
@@ -158,6 +163,7 @@ body {
 
 /* Theme Toggle Button */
 .theme-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -190,6 +196,28 @@ body {
 }
 
 :root[data-theme="dark"] .icon-sun {
+  display: block;
+}
+
+.theme-auto-dot {
+  display: none;
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--text-inverted);
+  font-family: var(--font-mono);
+  font-size: 6.5px;
+  font-weight: 700;
+  line-height: 10px;
+  text-align: center;
+  pointer-events: none;
+}
+
+:root[data-theme-pref="auto"] .theme-auto-dot {
   display: block;
 }
 

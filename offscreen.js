@@ -1,28 +1,50 @@
 import { t } from './i18n.js';
+import {
+  sanitizeHexColor,
+  isValidImageMimeType,
+  detectImageMimeFromBytes
+} from './helpers.js';
 
 // Concurrency queue: limits simultaneous heavy canvas conversions to prevent memory spikes
 const MAX_CONCURRENT_CONVERSIONS = 2;
+const CONVERSION_TIMEOUT_MS = 15000;
 let activeConversions = 0;
 const conversionQueue = [];
 
+// Track active blob URL safety timers so they can be cleared on explicit revocation
+const blobRevokeTimers = new Map();
+
 /**
  * Enqueues a conversion task so at most MAX_CONCURRENT_CONVERSIONS run in parallel.
- * Timeout timers inside the task only start when the task is dequeued and begins running.
+ * If a task times out, the caller receives the error immediately, while the queue slot
+ * waits for the underlying decoding/encoding workPromise to settle and release memory.
  *
  * @template T
- * @param {() => Promise<T>} taskFn
+ * @param {(trackWork: (p: Promise<any>) => void) => Promise<T>} taskFn
  * @returns {Promise<T>}
  */
 function enqueueConversion(taskFn) {
   return new Promise((resolve, reject) => {
     const run = async () => {
       activeConversions++;
+      let backgroundWork = null;
+      const trackWork = (promise) => {
+        backgroundWork = promise;
+      };
+
       try {
-        const result = await taskFn();
+        const result = await taskFn(trackWork);
         resolve(result);
       } catch (err) {
         reject(err);
       } finally {
+        if (backgroundWork) {
+          try {
+            await backgroundWork;
+          } catch (_) {
+            // Ignore errors from timed-out background work during cleanup wait
+          }
+        }
         activeConversions--;
         if (conversionQueue.length > 0) {
           const nextTask = conversionQueue.shift();
@@ -40,19 +62,24 @@ function enqueueConversion(taskFn) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'convert-image') {
-    enqueueConversion(() =>
-      convertImage(message.sourceDataUrl, message.format, {
-        quality: message.quality,
-        backgroundColor: message.backgroundColor,
-        returnType: message.returnType || 'dataUrl',
-        lang: message.lang || 'en'
-      })
+  if (message.type === 'convert-url') {
+    enqueueConversion((trackWork) =>
+      convertImageFromUrl(
+        message.srcUrl,
+        message.format,
+        {
+          quality: message.quality,
+          backgroundColor: message.backgroundColor,
+          returnType: message.returnType || 'blobUrl',
+          lang: message.lang || 'en'
+        },
+        trackWork
+      )
     )
-      .then(resultUrl => {
+      .then((resultUrl) => {
         sendResponse({ success: true, dataUrl: resultUrl });
       })
-      .catch(error => {
+      .catch((error) => {
         console.error('Error during image conversion in offscreen:', error);
         sendResponse({ success: false, error: error.message });
       });
@@ -61,6 +88,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'revoke-blob-url') {
     if (message.blobUrl && message.blobUrl.startsWith('blob:')) {
+      const timerId = blobRevokeTimers.get(message.blobUrl);
+      if (timerId) {
+        clearTimeout(timerId);
+        blobRevokeTimers.delete(message.blobUrl);
+      }
       try {
         URL.revokeObjectURL(message.blobUrl);
       } catch (e) {
@@ -70,36 +102,139 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return false;
   }
-
-  if (message.type === 'copy-to-clipboard') {
-    copyDataUrlToClipboard(message.dataUrl)
-      .then(() => {
-        sendResponse({ success: true });
-      })
-      .catch(error => {
-        console.warn('Offscreen direct clipboard write failed:', error);
-        sendResponse({ success: false, error: error.message });
-      });
-    return true;
-  }
 });
 
 /**
- * Converts an image into the target format.
- * Uses hardware-accelerated createImageBitmap + OffscreenCanvas for raster images,
- * and automatically falls back to DOM Image + HTMLCanvasElement for SVGs or unsupported streams.
- * 
- * @param {string} sourceDataUrl - The Data URL of the source image.
- * @param {string} format - Target format ('jpeg', 'png', 'webp').
- * @param {Object} [options] - Conversion options.
- * @param {number} [options.quality] - Compression quality (0.5 to 1.0) for JPEG and WEBP.
- * @param {string} [options.backgroundColor] - Background fill color for JPEG (default '#FFFFFF').
- * @param {'blobUrl' | 'dataUrl'} [options.returnType] - Output URL format.
- * @param {string} [options.lang] - Language code ('tr' or 'en').
- * @returns {Promise<string>} The converted Blob URL or Data URL.
+ * Fetches an image URL in the offscreen document with connection + stream stall timeouts.
+ *
+ * @param {string} srcUrl
+ * @param {string} lang
+ * @returns {Promise<Blob>}
  */
-async function convertImage(sourceDataUrl, format, options = {}) {
-  const isSvg = /^data:image\/svg\+xml[;,]/i.test(sourceDataUrl);
+async function fetchSourceBlobInOffscreen(srcUrl, lang) {
+  if (srcUrl.startsWith('data:')) {
+    try {
+      const res = await fetch(srcUrl);
+      return await res.blob();
+    } catch (err) {
+      throw new Error(t('errDataUrl', lang, { err: err.message || String(err) }));
+    }
+  }
+
+  // Attempt 1: with credentials; Attempt 2: without credentials on network/auth errors
+  try {
+    return await fetchStreamWithStallTimeout(srcUrl, { credentials: 'include' }, lang);
+  } catch (err) {
+    if (err.noRetry) {
+      throw err;
+    }
+    return await fetchStreamWithStallTimeout(srcUrl, {}, lang);
+  }
+}
+
+/**
+ * Performs a fetch with an 8s header timeout and a 10s per-chunk stream stall timeout.
+ *
+ * @param {string} url
+ * @param {RequestInit} init
+ * @param {string} lang
+ * @returns {Promise<Blob>}
+ */
+async function fetchStreamWithStallTimeout(url, init, lang, headerTimeoutMs = 8000, stallTimeoutMs = 10000) {
+  const controller = new AbortController();
+  let timerId = setTimeout(() => controller.abort(), headerTimeoutMs);
+
+  const resetStallTimer = () => {
+    clearTimeout(timerId);
+    timerId = setTimeout(() => controller.abort(), stallTimeoutMs);
+  };
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    clearTimeout(timerId);
+
+    if (response.status === 404) {
+      const err = new Error(t('errNotFound', lang));
+      err.noRetry = true;
+      throw err;
+    }
+
+    if (!response.ok) {
+      const err = new Error(`HTTP ${response.status}`);
+      if (response.status >= 500) {
+        err.noRetry = true;
+      }
+      throw err;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!isValidImageMimeType(contentType)) {
+      const err = new Error(t('errNotAnImage', lang, { type: contentType.split(';')[0].trim() }));
+      err.noRetry = true;
+      throw err;
+    }
+
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      resetStallTimer();
+      const blob = await response.blob();
+      clearTimeout(timerId);
+      return blob;
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    while (true) {
+      resetStallTimer();
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+    clearTimeout(timerId);
+
+    const mimeType = contentType.split(';')[0].trim().toLowerCase();
+    return new Blob(chunks, mimeType ? { type: mimeType } : undefined);
+  } catch (err) {
+    clearTimeout(timerId);
+    if (err.noRetry) {
+      throw err;
+    }
+    throw new Error(t('errNetwork', lang, { err: err.message || String(err) }));
+  }
+}
+
+/**
+ * Fetches and converts an image from srcUrl into the target format.
+ * Uses createImageBitmap + OffscreenCanvas for large raster images, and falls back to
+ * DOM Image + HTMLCanvasElement for SVGs or formats requiring DOM rendering.
+ *
+ * @param {string} srcUrl
+ * @param {string} format - 'jpeg', 'png', or 'webp'
+ * @param {Object} options
+ * @param {(p: Promise<any>) => void} [trackWork]
+ * @returns {Promise<string>}
+ */
+async function convertImageFromUrl(srcUrl, format, options = {}, trackWork) {
+  const lang = options.lang || 'en';
+  let sourceBlob = await fetchSourceBlobInOffscreen(srcUrl, lang);
+
+  if (!isValidImageMimeType(sourceBlob.type)) {
+    throw new Error(t('errNotAnImage', lang, { type: sourceBlob.type.split(';')[0].trim() }));
+  }
+
+  const sniffedMime = await detectImageMimeFromBytes(sourceBlob);
+  if (sniffedMime === 'text/html') {
+    throw new Error(t('errNotAnImage', lang, { type: 'text/html' }));
+  }
+
+  const isSvg =
+    sniffedMime === 'image/svg+xml' ||
+    sourceBlob.type.split(';')[0].trim().toLowerCase() === 'image/svg+xml' ||
+    /^data:image\/svg\+xml[;,]/i.test(srcUrl);
+
+  if (isSvg && sourceBlob.type !== 'image/svg+xml') {
+    sourceBlob = new Blob([sourceBlob], { type: 'image/svg+xml' });
+  }
+
   const canUseOffscreenCanvas =
     !isSvg &&
     typeof createImageBitmap === 'function' &&
@@ -107,47 +242,53 @@ async function convertImage(sourceDataUrl, format, options = {}) {
 
   if (canUseOffscreenCanvas) {
     try {
-      return await convertWithBitmap(sourceDataUrl, format, options);
+      return await convertWithBitmap(sourceBlob, format, options, trackWork);
     } catch (bitmapErr) {
       if (bitmapErr && bitmapErr.isTimeout) {
         throw bitmapErr;
       }
-      // Fallback to DOM <img> + <canvas> if createImageBitmap fails (e.g. disguised SVG)
-      console.warn('OffscreenCanvas path failed, falling back to DOM Canvas:', bitmapErr);
+      console.warn('OffscreenCanvas path failed in offscreen, falling back to DOM Canvas:', bitmapErr);
     }
   }
 
-  return await convertWithDomImage(sourceDataUrl, format, options);
+  return await convertWithDomImage(sourceBlob, format, options);
 }
 
 /**
- * Fast-path conversion using createImageBitmap() + OffscreenCanvas.convertToBlob().
- * Decodes off the main thread and releases GPU/RAM immediately via bitmap.close().
+ * Hardware-accelerated conversion using createImageBitmap() + OffscreenCanvas.convertToBlob().
+ *
+ * @param {Blob} sourceBlob
+ * @param {string} format
+ * @param {Object} options
+ * @param {(p: Promise<any>) => void} [trackWork]
+ * @returns {Promise<string>}
  */
-async function convertWithBitmap(sourceDataUrl, format, options = {}) {
+async function convertWithBitmap(sourceBlob, format, options = {}, trackWork) {
   const lang = options.lang || 'en';
-  const returnType = options.returnType || 'dataUrl';
+  const returnType = options.returnType || 'blobUrl';
+  let aborted = false;
 
   let timeoutId = null;
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
+      aborted = true;
       const err = new Error(t('errTimeout', lang));
       err.isTimeout = true;
       reject(err);
-    }, 8000);
+    }, CONVERSION_TIMEOUT_MS);
   });
 
   const workPromise = (async () => {
-    const response = await fetch(sourceDataUrl);
-    const sourceBlob = await response.blob();
-
-    // SVGs cannot be decoded by createImageBitmap in Chromium; trigger fallback
     if (sourceBlob.type === 'image/svg+xml') {
       throw new Error('SVG requires DOM Image renderer');
     }
 
     let bitmap = await createImageBitmap(sourceBlob);
     try {
+      if (aborted) {
+        throw new Error(t('errTimeout', lang));
+      }
+
       const width = bitmap.width;
       const height = bitmap.height;
 
@@ -162,7 +303,7 @@ async function convertWithBitmap(sourceDataUrl, format, options = {}) {
       }
 
       if (format === 'jpeg') {
-        ctx.fillStyle = options.backgroundColor || '#FFFFFF';
+        ctx.fillStyle = sanitizeHexColor(options.backgroundColor, '#ffffff');
         ctx.fillRect(0, 0, width, height);
       }
 
@@ -171,6 +312,12 @@ async function convertWithBitmap(sourceDataUrl, format, options = {}) {
       // Immediately release decoded bitmap memory before encoding output blob
       bitmap.close();
       bitmap = null;
+
+      if (aborted) {
+        canvas.width = 0;
+        canvas.height = 0;
+        throw new Error(t('errTimeout', lang));
+      }
 
       let qualityParam = undefined;
       if (format === 'jpeg' || format === 'webp') {
@@ -186,13 +333,25 @@ async function convertWithBitmap(sourceDataUrl, format, options = {}) {
       canvas.width = 0;
       canvas.height = 0;
 
+      if (aborted) {
+        throw new Error(t('errTimeout', lang));
+      }
+
       return await formatOutputBlob(outputBlob, returnType, lang);
     } finally {
       if (bitmap) {
-        try { bitmap.close(); } catch (e) { /* ignore */ }
+        try {
+          bitmap.close();
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
   })();
+
+  if (typeof trackWork === 'function') {
+    trackWork(workPromise);
+  }
 
   try {
     return await Promise.race([workPromise, timeoutPromise]);
@@ -203,25 +362,43 @@ async function convertWithBitmap(sourceDataUrl, format, options = {}) {
 
 /**
  * Fallback conversion using DOM <img> + HTMLCanvasElement (used for SVGs and fallback cases).
+ *
+ * @param {Blob} sourceBlob
+ * @param {string} format
+ * @param {Object} options
+ * @returns {Promise<string>}
  */
-function convertWithDomImage(sourceDataUrl, format, options = {}) {
+async function convertWithDomImage(sourceBlob, format, options = {}) {
   const lang = options.lang || 'en';
-  const returnType = options.returnType || 'dataUrl';
+  const returnType = options.returnType || 'blobUrl';
+  const isSvg = sourceBlob.type === 'image/svg+xml';
+
+  let svgFallbackDims = null;
+  if (isSvg) {
+    svgFallbackDims = await extractSvgDimensionsFromBlob(sourceBlob);
+  }
 
   return new Promise((resolve, reject) => {
     const img = new Image();
+    const tempObjectUrl = URL.createObjectURL(sourceBlob);
 
-    // Set a safety timeout of 8 seconds to prevent hanging
     const timeoutId = setTimeout(() => {
       cleanup();
-      reject(new Error(t('errTimeout', lang)));
-    }, 8000);
+      const err = new Error(t('errTimeout', lang));
+      err.isTimeout = true;
+      reject(err);
+    }, CONVERSION_TIMEOUT_MS);
 
     function cleanup() {
       img.onload = null;
       img.onerror = null;
       try {
         img.src = '';
+      } catch (e) {
+        // ignore
+      }
+      try {
+        URL.revokeObjectURL(tempObjectUrl);
       } catch (e) {
         // ignore
       }
@@ -232,11 +409,9 @@ function convertWithDomImage(sourceDataUrl, format, options = {}) {
         let width = img.naturalWidth || img.width;
         let height = img.naturalHeight || img.height;
 
-        // Fallback for SVG images without explicit width/height attributes (only viewBox)
-        if ((!width || !height) && sourceDataUrl.startsWith('data:image/svg+xml')) {
-          const svgDims = extractSvgDimensions(sourceDataUrl);
-          width = svgDims.width;
-          height = svgDims.height;
+        if ((!width || !height) && svgFallbackDims) {
+          width = svgFallbackDims.width;
+          height = svgFallbackDims.height;
         }
 
         if (!width || !height) {
@@ -245,7 +420,6 @@ function convertWithDomImage(sourceDataUrl, format, options = {}) {
           throw new Error(t('errDimensions', lang));
         }
 
-        // Create canvas matching image dimensions
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
@@ -257,17 +431,14 @@ function convertWithDomImage(sourceDataUrl, format, options = {}) {
           throw new Error(t('errCanvasContext', lang));
         }
 
-        // Transparent background fill for JPG conversions
         if (format === 'jpeg') {
-          ctx.fillStyle = options.backgroundColor || '#FFFFFF';
+          ctx.fillStyle = sanitizeHexColor(options.backgroundColor, '#ffffff');
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        // Draw image onto canvas
         ctx.drawImage(img, 0, 0, width, height);
         cleanup();
 
-        // Determine quality parameter
         let qualityParam = undefined;
         if (format === 'jpeg' || format === 'webp') {
           qualityParam = typeof options.quality === 'number' ? options.quality : 0.95;
@@ -275,14 +446,17 @@ function convertWithDomImage(sourceDataUrl, format, options = {}) {
 
         const mimeType = `image/${format}`;
 
-        // Use asynchronous toBlob instead of synchronous toDataURL to avoid blocking main thread
-        canvas.toBlob((blob) => {
-          clearTimeout(timeoutId);
-          canvas.width = 0;
-          canvas.height = 0;
+        canvas.toBlob(
+          (blob) => {
+            clearTimeout(timeoutId);
+            canvas.width = 0;
+            canvas.height = 0;
 
-          formatOutputBlob(blob, returnType, lang).then(resolve, reject);
-        }, mimeType, qualityParam);
+            formatOutputBlob(blob, returnType, lang).then(resolve, reject);
+          },
+          mimeType,
+          qualityParam
+        );
       } catch (err) {
         clearTimeout(timeoutId);
         cleanup();
@@ -296,13 +470,13 @@ function convertWithDomImage(sourceDataUrl, format, options = {}) {
       reject(new Error(t('errGraphicEngine', lang)));
     };
 
-    img.src = sourceDataUrl;
+    img.src = tempObjectUrl;
   });
 }
 
 /**
- * Formats the encoded output Blob into either a self-contained Data URL (< 15MB)
- * or a temporary Object URL (>= 15MB, avoiding Chrome's 64MB IPC message limit).
+ * Formats the encoded output Blob into a temporary Object URL (for downloads)
+ * or a Base64 Data URL (for clipboard copy).
  *
  * @param {Blob | null} blob
  * @param {'blobUrl' | 'dataUrl'} returnType
@@ -316,12 +490,17 @@ function formatOutputBlob(blob, returnType, lang) {
       return;
     }
 
-    const LARGE_BLOB_THRESHOLD = 15 * 1024 * 1024;
-    if (returnType === 'blobUrl' && blob.size >= LARGE_BLOB_THRESHOLD) {
+    if (returnType === 'blobUrl') {
       const blobUrl = URL.createObjectURL(blob);
-      setTimeout(() => {
-        try { URL.revokeObjectURL(blobUrl); } catch (e) { /* ignore */ }
+      const timerId = setTimeout(() => {
+        blobRevokeTimers.delete(blobUrl);
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch (e) {
+          /* ignore */
+        }
       }, 300000); // 5 minutes safety window for Save-As dialog
+      blobRevokeTimers.set(blobUrl, timerId);
       resolve(blobUrl);
     } else {
       const reader = new FileReader();
@@ -333,91 +512,26 @@ function formatOutputBlob(blob, returnType, lang) {
 }
 
 /**
- * Extracts fallback width and height from an SVG data URL's viewBox if intrinsic dimensions are 0.
+ * Extracts fallback width and height from an SVG Blob's viewBox if intrinsic dimensions are 0.
  *
- * @param {string} svgDataUrl
- * @returns {{ width: number, height: number }}
+ * @param {Blob} svgBlob
+ * @returns {Promise<{ width: number, height: number }>}
  */
-function extractSvgDimensions(svgDataUrl) {
+async function extractSvgDimensionsFromBlob(svgBlob) {
   try {
-    const commaIdx = svgDataUrl.indexOf(',');
-    if (commaIdx !== -1) {
-      const header = svgDataUrl.substring(0, commaIdx);
-      const rawData = svgDataUrl.substring(commaIdx + 1);
-      const svgText = header.includes(';base64') ? atob(rawData) : decodeURIComponent(rawData);
-      const viewBoxMatch = svgText.match(/viewBox\s*=\s*["']\s*[-+]?\d*\.?\d+[\s,]+[-+]?\d*\.?\d+[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)\s*["']/i);
-      if (viewBoxMatch) {
-        const w = Math.round(parseFloat(viewBoxMatch[1]));
-        const h = Math.round(parseFloat(viewBoxMatch[2]));
-        if (w > 0 && h > 0) {
-          return { width: w, height: h };
-        }
+    const svgText = await svgBlob.slice(0, 65536).text();
+    const viewBoxMatch = svgText.match(
+      /viewBox\s*=\s*["']\s*[-+]?\d*\.?\d+[\s,]+[-+]?\d*\.?\d+[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)\s*["']/i
+    );
+    if (viewBoxMatch) {
+      const w = Math.round(parseFloat(viewBoxMatch[1]));
+      const h = Math.round(parseFloat(viewBoxMatch[2]));
+      if (w > 0 && h > 0) {
+        return { width: w, height: h };
       }
     }
   } catch (e) {
     // ignore and fallback
   }
   return { width: 800, height: 600 };
-}
-
-/**
- * Copies a PNG Data URL to the system clipboard.
- * Uses Async Clipboard API if focused, otherwise falls back to DOM selection + execCommand('copy')
- * which is supported in Offscreen Documents with the 'CLIPBOARD' reason.
- * 
- * @param {string} dataUrl 
- * @returns {Promise<void>}
- */
-async function copyDataUrlToClipboard(dataUrl) {
-  if (document.hasFocus && document.hasFocus() && typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
-    try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const item = new ClipboardItem({ 'image/png': blob });
-      await navigator.clipboard.write([item]);
-      return;
-    } catch (e) {
-      // Fall through to execCommand fallback
-    }
-  }
-
-  // Offscreen document fallback: wait for image to load in DOM, select it, and run execCommand('copy')
-  await new Promise((resolve, reject) => {
-    const div = document.createElement('div');
-    div.contentEditable = 'true';
-    div.style.position = 'fixed';
-    div.style.left = '-9999px';
-    div.style.top = '0';
-    div.style.opacity = '0';
-
-    const img = document.createElement('img');
-    img.onload = () => {
-      try {
-        document.body.appendChild(div);
-        div.focus();
-        const range = document.createRange();
-        range.selectNode(img);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-        const ok = document.execCommand('copy');
-        sel.removeAllRanges();
-        div.remove();
-        if (ok) {
-          resolve();
-        } else {
-          reject(new Error('execCommand("copy") returned false in offscreen document.'));
-        }
-      } catch (err) {
-        div.remove();
-        reject(err);
-      }
-    };
-    img.onerror = () => {
-      div.remove();
-      reject(new Error('Failed to load image for offscreen clipboard copy.'));
-    };
-    div.appendChild(img);
-    img.src = dataUrl;
-  });
 }
